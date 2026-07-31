@@ -1,0 +1,44 @@
+# vscode
+.vscode
+
+# Intellij
+*.iml
+.idea
+
+# npm
+node_modules
+
+# Don't include the compiled main.js file in the repo.
+# They should be uploaded to GitHub releases instead.
+main.js
+
+# Exclude sourcemaps
+*.map
+
+# obsidian
+data.json
+
+# Exclude macOS Finder (System Explorer) View States
+.DS_Store
+
+Thumbs.db
+
+# AI & IDE directories
+agents/
+.agents/
+.claude/
+.gemini/
+.brain/
+.idea/
+.vscode/
+
+# Local-only files & archived development documents
+AGENTS.md
+TODO.md
+doc/manual-test-plan.md
+
+# Local reference images
+refs/
+
+# Test build output
+.test-dist/

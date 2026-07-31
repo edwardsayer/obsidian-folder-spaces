@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "outDir": ".test-dist",
+    "rootDir": "."
+  },
+  "include": [
+    "src/panel-activity-tracker.ts",
+    "src/folder-space-routing-policy.ts",
+    "src/compatibility-helpers.ts",
+    "src/api.ts",
+    "src/i18n.ts",
+    "tests/**/*.ts"
+  ]
+}
