@@ -32,7 +32,6 @@ type LocaleKey =
   | "actionTreeView"
   | "actionFlatView"
   | "actionToggleFolderView"
-  | "actionChangeRoot"
   | "actionFolderIcon"
   | "rootFolderModalPlaceholder"
   | "rootFolderModalEmpty"
@@ -76,7 +75,6 @@ const ENGLISH: LocaleTable = {
   actionTreeView: "Tree view",
   actionFlatView: "Flat view",
   actionToggleFolderView: "Toggle folder view",
-  actionChangeRoot: "Change folder",
   actionFolderIcon: "Set folder space icon",
   rootFolderModalPlaceholder: "Choose folder",
   rootFolderModalEmpty: "No folders found.",
@@ -119,7 +117,6 @@ const TRADITIONAL_CHINESE: LocaleTable = {
   actionTreeView: "樹狀檢視",
   actionFlatView: "扁平檢視",
   actionToggleFolderView: "切換資料夾檢視",
-  actionChangeRoot: "切換資料夾",
   actionFolderIcon: "設定資料夾空間圖示",
   rootFolderModalPlaceholder: "選擇資料夾",
   rootFolderModalEmpty: "沒有資料夾",
@@ -162,7 +159,6 @@ const SIMPLIFIED_CHINESE: LocaleTable = {
   actionTreeView: "树状视图",
   actionFlatView: "扁平视图",
   actionToggleFolderView: "切换文件夹视图",
-  actionChangeRoot: "切换文件夹",
   actionFolderIcon: "设置文件夹空间图标",
   rootFolderModalPlaceholder: "选择文件夹",
   rootFolderModalEmpty: "没有文件夹",

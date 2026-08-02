@@ -1,5 +1,6 @@
 import {
   App,
+  FileView,
   FuzzySuggestModal,
   ItemView,
   Keymap,
@@ -36,10 +37,7 @@ import { t } from "./i18n.js";
 import { PanelActivityTracker } from "./panel-activity-tracker.js";
 import { IconPickerModal } from "./ui/icon-picker-modal.js";
 import {
-  choosePanelTarget,
-  chooseRecentPanel,
   chooseFolderSpaceCreationTarget,
-  type PanelCandidate,
   type FolderSpaceCreationCandidate
 } from "./folder-space-routing-policy.js";
 import { getWindowOfLeaf, isPopoutWindow } from "./popout-sidebar.js";
@@ -222,7 +220,7 @@ export function createFolderSpaceViewWithOptions(
   options: FolderSpaceViewOptions
 ): View {
   getPanelActivityTracker(app.workspace);
-  makeNavigable(leaf);
+  makeFolderSpaceLeafProtected(leaf);
 
   const creator = getFileExplorerCreator(app);
   if (!creator) {
@@ -237,7 +235,7 @@ export function createFolderSpaceViewWithOptions(
 
     makeDockable(baseView);
     makeNavigable(baseView);
-    makeNavigable(leaf);
+    makeFolderSpaceLeafProtected(leaf);
     return patchExplorerView(baseView, options);
   } catch (error) {
     console.warn("[folder-spaces] Native File Explorer unavailable; Folder Space disabled.", error);
@@ -305,6 +303,28 @@ export function makeDockable(view: View): boolean {
   }
 }
 
+/**
+ * Obsidian's `getUnpinnedLeaf()` reuses the active leaf as the file-open
+ * target when `canNavigate()` returns true. Force `canNavigate()` to return
+ * false on a leaf so it is never reused as a file-open target.
+ */
+export function makeLeafUnreusable(leaf: WorkspaceLeaf): void {
+  (leaf as WorkspaceLeaf & { canNavigate?: () => boolean }).canNavigate = () => false;
+}
+
+/**
+ * Obsidian's `getUnpinnedLeaf()` reuses the active leaf as the file-open
+ * target when `canNavigate()` returns true. The Folder Space forces
+ * `navigation: true` to stay dockable, which would let a native file-open
+ * (command palette, quick switcher, link) replace the Folder Space whenever it
+ * is the active leaf. Override `canNavigate` on the leaf so the Folder Space
+ * is never reused as a file-open target.
+ */
+export function makeFolderSpaceLeafProtected(leaf: WorkspaceLeaf): void {
+  makeNavigable(leaf);
+  makeLeafUnreusable(leaf);
+}
+
 function getFileExplorerCreator(app: App): ViewCreator | null {
   try {
     const registry = (app as App & {
@@ -330,6 +350,7 @@ function createUnsupportedView(
 ): FolderSpaceUnsupportedView {
   const view = new FolderSpaceUnsupportedView(leaf, options);
   makeNavigable(view);
+  makeFolderSpaceLeafProtected(leaf);
   return view;
 }
 
@@ -434,7 +455,7 @@ function patchExplorerView(
   view.icon = getFolderSpaceIcon(options, view.folderPath);
   makeNavigable(view);
   if (view.leaf) {
-    makeNavigable(view.leaf);
+    makeFolderSpaceLeafProtected(view.leaf);
   }
   registerTreeNavigationOverride(view);
 
@@ -491,7 +512,7 @@ function patchExplorerView(
       // properties that were set while the view was being created.
       makeNavigable(view);
       if (view.leaf) {
-        makeNavigable(view.leaf);
+        makeFolderSpaceLeafProtected(view.leaf);
       }
       refreshFolderPresentation(view, Boolean(view.folderPath));
       scheduleFlatRefresh(view);
@@ -507,7 +528,7 @@ function patchExplorerView(
     // The native explorer can reset this flag while it is loading.
     makeNavigable(view);
     if (view.leaf) {
-      makeNavigable(view.leaf);
+      makeFolderSpaceLeafProtected(view.leaf);
     }
     registerRootContextMenuOverride(view);
     registerCreateButtonsOverride(view);
@@ -680,15 +701,6 @@ function initializeEmptyState(view: PatchedExplorerView): void {
 
   const folderPathActions = folderPath.createDiv({ cls: "folder-spaces-folder-path-actions nav-buttons" });
 
-  const changeRootButton = folderPathActions.createDiv({
-    cls: "clickable-icon folder-spaces-action-btn",
-    attr: {
-      "aria-label": t("actionChangeRoot"),
-      "data-tooltip": t("actionChangeRoot")
-    }
-  });
-  setIcon(changeRootButton, "lucide-folder-search");
-
   const viewModeButton = folderPathActions.createDiv({
     cls: "clickable-icon folder-spaces-action-btn",
     attr: {
@@ -707,18 +719,17 @@ function initializeEmptyState(view: PatchedExplorerView): void {
 
   view.navFileContainerEl.before(folderPath);
 
-  // Right-click or left-click on folderPathLeft -> Native Folder Context Menu
+  // Left-click on folderPathLeft -> Change folder picker
   view.registerDomEvent(folderPathLeft, "click", (event: MouseEvent) => {
     if (view.rootRenameInputEl) {
       return;
     }
 
-    const rootFolder = getRootFolder(view);
-    if (rootFolder) {
-      openRootBlankAreaContextMenu(view, event, rootFolder);
-    }
+    event.stopPropagation();
+    new RootFolderPickerModal(view.app, view).open();
   });
 
+  // Right-click on the folder path -> Native Folder Context Menu
   view.registerDomEvent(folderPath, "contextmenu", (event: MouseEvent) => {
     if (view.rootRenameInputEl) {
       return;
@@ -729,12 +740,6 @@ function initializeEmptyState(view: PatchedExplorerView): void {
     if (rootFolder) {
       openRootBlankAreaContextMenu(view, event, rootFolder);
     }
-  });
-
-  // Change Root Button -> Vault folder picker
-  view.registerDomEvent(changeRootButton, "click", (event: MouseEvent) => {
-    event.stopPropagation();
-    new RootFolderPickerModal(view.app, view).open();
   });
 
   // View Mode Button -> Toggle Tree/Flat for the current root folder
@@ -1078,7 +1083,7 @@ function getRecentContentLeaf(
   const candidates: WorkspaceLeaf[] = [];
 
   workspace.iterateAllLeaves((leaf) => {
-    if (leaf.getRoot() === contentRoot && !isFolderSpaceLeaf(leaf)) {
+    if (leaf.getRoot() === contentRoot && isReusableFileLeaf(leaf)) {
       candidates.push(leaf);
     }
   });
@@ -1108,59 +1113,41 @@ function resolveRecentSiblingLeaf(
   contentRoot: WorkspaceParent
 ): WorkspaceLeaf | null {
   const workspace = view.app.workspace;
-  const tracker = getPanelActivityTracker(workspace);
-  const panels = new Map<WorkspaceParent, WorkspaceLeaf[]>();
 
+  // The tab that was active before the Folder Space gained focus. Matching
+  // Obsidian's own file explorer, a file opened from the Folder Space lands on
+  // the previously active note tab rather than on the Folder Space itself.
+  const siblings: WorkspaceLeaf[] = [];
   workspace.iterateAllLeaves((leaf) => {
-    if (leaf.getRoot() !== contentRoot || isFolderSpaceLeaf(leaf)) {
-      return;
+    if (leaf.getRoot() === contentRoot && leaf !== view.leaf) {
+      siblings.push(leaf);
     }
-
-    if (contentRoot === view.leaf.getRoot() && leaf.parent === view.leaf.parent) {
-      return;
-    }
-
-    const leaves = panels.get(leaf.parent) ?? [];
-    leaves.push(leaf);
-    panels.set(leaf.parent, leaves);
   });
 
-  const candidates: PanelCandidate<WorkspaceParent, WorkspaceLeaf>[] = Array.from(panels.entries()).map(
-    ([parent, leaves]) => ({
-      panel: parent,
-      order: tracker.getPanelOrder(parent),
-      activeLeaf: getActiveLeafInPanel(leaves, tracker),
-      activePinned: false
-    })
-  );
-
-  for (const candidate of candidates) {
-    candidate.activePinned = candidate.activeLeaf ? isPinnedLeaf(candidate.activeLeaf) : false;
+  let previous: WorkspaceLeaf | null = null;
+  let previousActiveTime = -1;
+  for (const leaf of siblings) {
+    const activeTime = (leaf as WorkspaceLeaf & { activeTime?: number }).activeTime ?? 0;
+    if (activeTime > previousActiveTime) {
+      previousActiveTime = activeTime;
+      previous = leaf;
+    }
   }
 
-  const target = choosePanelTarget(chooseRecentPanel(candidates));
-  if (!target) {
+  if (!previous) {
     return null;
   }
 
-  if (target.kind === "existing") {
-    return target.leaf;
+  // Reuse the previously active tab when it can host a file: an unpinned note,
+  // or a blank "New tab" that Obsidian would also reuse.
+  if (isReusableFileLeaf(previous) || previous.getViewState().type === "empty") {
+    return previous;
   }
 
-  return workspace.createLeafInParent(target.panel as WorkspaceSplit, -1);
-}
-
-function getActiveLeafInPanel(
-  leaves: WorkspaceLeaf[],
-  tracker: PanelActivityTracker
-): WorkspaceLeaf | null {
-  const activeLeaf = leaves.find((leaf) => leaf.getViewState().active);
-  if (activeLeaf) {
-    return activeLeaf;
-  }
-
-  const lastLeaf = leaves.find((leaf) => tracker.getLastLeaf(leaf.parent) === leaf);
-  return lastLeaf ?? leaves[leaves.length - 1] ?? null;
+  // Otherwise (a panel, or a pinned tab) open a new tab in its tab group.
+  return previous.parent
+    ? workspace.createLeafInParent(previous.parent as WorkspaceSplit, -1)
+    : null;
 }
 
 function isPinnedLeaf(leaf: WorkspaceLeaf): boolean {
@@ -1185,6 +1172,22 @@ function getPanelActivityTracker(workspace: App["workspace"]): PanelActivityTrac
 
 function isFolderSpaceLeaf(leaf: WorkspaceLeaf): boolean {
   return leaf.getViewState().type === FOLDER_SPACES_VIEW_TYPE;
+}
+
+/**
+ * A leaf that can safely host a file opened from a Folder Space. Only unpinned
+ * navigable file views (markdown, canvas, pdf, ...) are reused as file-open
+ * targets. File-associated panels that extend FileView but are not navigable
+ * (backlink, outline, outgoing-link, which Obsidian renders with
+ * `navigation=false`) are therefore excluded, as are Folder Space panels, the
+ * global search panel, other non-file views and pinned tabs.
+ */
+function isReusableFileLeaf(leaf: WorkspaceLeaf): boolean {
+  return (
+    !isPinnedLeaf(leaf) &&
+    (leaf as WorkspaceLeaf & { canNavigate?: () => boolean }).canNavigate?.() !== false &&
+    leaf.view instanceof FileView
+  );
 }
 
 function registerRootContextMenuOverride(view: PatchedExplorerView): void {
@@ -1373,11 +1376,104 @@ async function openFolderSpaceSearch(view: PatchedExplorerView, folder: TFolder)
     const leaf = existingSearchLeaf ?? createTabInRoot(workspace, getContentRoot(view), view.leaf);
     await leaf.setViewState({ type: "search", state: { query } });
     await workspace.revealLeaf(leaf);
+    // Obsidian's workspace drag handler only lets views that are ItemViews be
+    // dropped into the editor workspace; popout windows have no left/right
+    // sidebar, so without this the search panel cannot be dragged between
+    // splits/tab groups inside the popout.
+    if (leaf.view) {
+      makeDockable(leaf.view);
+    }
+    makeLeafUnreusable(leaf);
     workspace.setActiveLeaf(leaf, { focus: true });
   } catch (error) {
     console.warn("[folder-spaces] Unable to open search in Folder Space window:", error);
     new Notice(t("rootUnavailable"));
   }
+}
+
+/**
+ * Obsidian's workspace drag handler only lets views that are ItemViews be
+ * dropped into the editor workspace. Popout windows have no left/right
+ * sidebar, so native sidebar views (search, tag, outline, backlink, ...)
+ * living there must also be made dockable. This is normally applied when a
+ * view is opened from a popout window, but views restored from a saved layout
+ * (e.g. via Window Spaces) are created natively and need the bridge applied
+ * again.
+ *
+ * At the same time, non-file panels in a popout must never be reused as native
+ * file-open targets: `getUnpinnedLeaf()` reuses the active leaf when
+ * `canNavigate()` returns true, which would let an opened note replace a
+ * backlink / outgoing link / search panel inside the popout. Only those panels
+ * get `canNavigate()` forced to false; file views keep it so an opened note
+ * still replaces an unpinned note tab, matching normal Obsidian behavior.
+ */
+const POPOUT_SIDEBAR_VIEW_TYPES = new Set([
+  "search",
+  "tag",
+  "outline",
+  "backlink",
+  "outgoing-link",
+  "all-properties",
+  "bookmarks",
+  "footnotes",
+  "file-explorer"
+]);
+
+export function makePopoutViewsProtected(workspace: App["workspace"]): void {
+  workspace.iterateAllLeaves((leaf) => {
+    if (!isPopoutWindow(getWindowOfLeaf(leaf))) {
+      return;
+    }
+
+    if (isPopoutPanelLeaf(leaf)) {
+      makeLeafUnreusable(leaf);
+    }
+
+    const viewType = leaf.getViewState().type;
+    if (!POPOUT_SIDEBAR_VIEW_TYPES.has(viewType)) {
+      return;
+    }
+
+    const view = leaf.view;
+    if (view instanceof ItemView) {
+      return;
+    }
+
+    if (view && view.getViewType() === viewType) {
+      makeDockable(view);
+      return;
+    }
+
+    // The view may still be deferred; load it (without activating) first.
+    void leaf
+      .loadIfDeferred()
+      .then(() => {
+        if (leaf.view && leaf.view.getViewType() === viewType) {
+          makeDockable(leaf.view);
+        }
+      })
+      .catch(() => {});
+  });
+}
+
+/**
+ * A leaf in a popout window that must never be reused as a file-open target:
+ * any loaded non-file view (search, tag, outline, ...), any file-associated
+ * panel that extends FileView but is not navigable (backlink, outline,
+ * outgoing-link), or a deferred known sidebar panel.
+ */
+function isPopoutPanelLeaf(leaf: WorkspaceLeaf): boolean {
+  const view = leaf.view;
+  if (view && view.getViewType() !== "empty") {
+    if (!(view instanceof FileView)) {
+      return true;
+    }
+    return (
+      !isPinnedLeaf(leaf) &&
+      (leaf as WorkspaceLeaf & { canNavigate?: () => boolean }).canNavigate?.() === false
+    );
+  }
+  return POPOUT_SIDEBAR_VIEW_TYPES.has(leaf.getViewState().type);
 }
 
 function isRenameMenuText(text: string): boolean {

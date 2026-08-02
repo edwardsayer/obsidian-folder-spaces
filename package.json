@@ -1,6 +1,6 @@
 {
 	"name": "folder-spaces",
-	"version": "0.2.0",
+	"version": "0.3.0",
 	"description": "Create folder-scoped File Explorer spaces in Obsidian sidebars, editor tabs, and popout windows.",
 	"main": "main.js",
 	"type": "module",

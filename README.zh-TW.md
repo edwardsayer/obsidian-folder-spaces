@@ -30,8 +30,8 @@ Folder Spaces 讓你將任意資料夾抽離成獨立的 scoped 檔案總管，�
 - **工作區佈局還原**：重啟 Obsidian 後自動恢復所有已開啟的 Folder Space 頁籤。
 - **互動式 Header 工具列**：
   - 顯示目前根目錄路徑。
-  - 對標頭文字點擊左鍵或右鍵，直接呼叫 Obsidian 原生資料夾右鍵選單 (`file-menu`)。
-  - `切換資料夾` 按鈕：開啟可搜尋的資料夾選擇器來切換根目錄——可用來返回上層資料夾，或直接跳到任一子資料夾。
+  - 點擊根目錄標題，開啟可搜尋的資料夾選擇器來切換根目錄——可用來返回上層資料夾，或直接跳到任一子資料夾。
+  - 對標頭文字按右鍵，呼叫 Obsidian 原生資料夾右鍵選單 (`file-menu`)。
   - `檢視模式` 按鈕：切換目前資料夾的樹狀／扁平檢視。
   - `資料夾圖示` 按鈕：為目前根資料夾設定自訂圖示（覆蓋全域圖示）。
   - `更多選項` 按鈕 (`⋮`)：觸發資料夾動作選單。
@@ -40,6 +40,8 @@ Folder Spaces 讓你將任意資料夾抽離成獨立的 scoped 檔案總管，�
 - **快速開啟**：透過側邊欄功能區圖示或 `開啟 Folder Space` 指令選擇資料夾，並在預設位置開啟。
 - **Popout 視窗感知的開啟**：在 popout 視窗內執行 `開啟 Folder Space` 指令或 `Folder Spaces` 右鍵子選單時，新的 Folder Space 會在**同一個 popout 視窗**內開啟——重用或建立全高左／右側欄，或開啟在 popout 的編輯區——而不會跳回主視窗。
 - **同視窗搜尋**：當 Folder Space 位於 popout 視窗時，原生 *Search in folder* 右鍵動作會在該 popout 視窗內顯示搜尋結果，而非主視窗。
+- **popout 中的側邊欄 view**：在 popout 視窗內執行原生側邊欄 view 的指令（標籤、大綱、反向連結、屬性、搜尋等），會在**同一個 popout 視窗**內開啟，並可在 split／tab group 之間拖曳。
+- **面板不會被取代**：在 popout 視窗中，側邊欄面板（backlink、outline、outgoing links、search 等）與 Folder Space explorer 不會被新開啟的 note 取代——note 會開在先前 active 的 note tab 上，或在其 tab group 開新 tab；未 pin 的 note tab 仍維持「開在目前 tab」的一般行為。
 - **開發者 Public API**：供第三方外掛（如 Window Spaces）整合與連動。
 
 ## 使用方式
@@ -47,7 +49,7 @@ Folder Spaces 讓你將任意資料夾抽離成獨立的 scoped 檔案總管，�
 1. 開啟 Obsidian 預設檔案總管。
 2. 對任意資料夾按右鍵。
 3. 選擇 `Folder Spaces` 並挑選開啟位置（預設位置、左側邊欄、右側邊欄、編輯區或新視窗）。
-4. 在新開啟的 Folder Space 頁籤中，將該資料夾作為獨立樹狀圖進行瀏覽與操作。使用 Header 工具列的 `切換資料夾` 選擇器返回上層或跳到任一子資料夾，並在樹狀／扁平檢視之間切換。
+4. 在新開啟的 Folder Space 頁籤中，將該資料夾作為獨立樹狀圖進行瀏覽與操作。點擊 Header 工具列的根目錄標題即可透過資料夾選擇器切換根目錄，並在樹狀／扁平檢視之間切換。
 
 ## 使用情境與工作流
 

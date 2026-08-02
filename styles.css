@@ -24,7 +24,7 @@
   align-items: center;
   min-width: 0;
   overflow: hidden;
-  cursor: default;
+  cursor: pointer;
   padding: var(--size-2-1) var(--size-4-1);
   line-height: 1.35;
 }

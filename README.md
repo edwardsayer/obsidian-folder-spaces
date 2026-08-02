@@ -30,8 +30,8 @@ Folder Spaces lets you detach any folder into its own scoped explorer, so you se
 - **Workspace restore**: all Folder Space views are restored automatically when Obsidian restarts.
 - **Interactive Header Bar**:
   - Shows the current root folder path.
-  - Left- or right-click the root folder title to trigger the full native Obsidian folder context menu (`file-menu`).
-  - `Change folder` button: open a searchable picker over all vault folders to switch the root — use it to navigate up to the parent folder or down into any subfolder.
+  - Click the root folder title to open a searchable picker over all vault folders to switch the root — use it to navigate up to the parent folder or down into any subfolder.
+  - Right-click the root folder title to trigger the full native Obsidian folder context menu (`file-menu`).
   - `View mode` button: toggle between Tree and Flat view for the current folder.
   - `Folder icon` button: set a custom icon for the current root folder (overrides the global icon).
   - `More` button (`⋮`): open folder options.
@@ -40,6 +40,8 @@ Folder Spaces lets you detach any folder into its own scoped explorer, so you se
 - **Quick open**: use the ribbon icon or the `Open Folder Space` command to pick a folder and open it in the default location.
 - **Popout-aware opening**: run the `Open Folder Space` command or the `Folder Spaces` context-menu submenu from inside a popout window and the new Folder Space opens in that same popout window — reusing or creating a full-height left/right sidebar pane, or opening in the popout's editor area — instead of jumping back to the main window.
 - **Search in the same window**: when a Folder Space lives in a popout window, the native *Search in folder* context-menu action shows its results in that same popout window rather than the main window.
+- **Sidebar views in popouts**: run a native sidebar-view command (Tags, Outline, Backlinks, Properties, Search, ...) from inside a popout window and it opens in that same popout window, draggable between splits and tab groups.
+- **Panels are never replaced**: inside a popout window, sidebar panels (backlink, outline, outgoing links, search, ...) and Folder Space explorers are never replaced by an opened note — the note opens on the previously active note tab, or as a new tab in that tab group, while unpinned note tabs keep the normal open-in-current-tab behavior.
 - **Developer API**: public API for third-party plugins (e.g. Window Spaces).
 
 ## Usage
@@ -47,7 +49,7 @@ Folder Spaces lets you detach any folder into its own scoped explorer, so you se
 1. Open Obsidian's default File Explorer.
 2. Right-click any folder.
 3. Hover over `Folder Spaces` and choose where to open it: default location, left sidebar, right sidebar, editor area, or new window.
-4. Browse that folder as its own file tree. Use the header bar's `Change folder` picker to navigate to the parent folder or any subfolder, and toggle between Tree and Flat view.
+4. Browse that folder as its own file tree. Click the folder title in the header bar to switch the root via the folder picker, and toggle between Tree and Flat view.
 
 ## Use Cases & Workflows
 

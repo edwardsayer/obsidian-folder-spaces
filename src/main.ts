@@ -4,6 +4,7 @@ import {
   TFolder,
   View,
   setIcon,
+  type App,
   type WorkspaceLeaf,
   type WorkspaceParent,
   type WorkspaceSplit
@@ -23,7 +24,11 @@ import {
   FolderPickerModal,
   createFolderSpaceViewWithOptions,
   disposePanelActivityTracker,
-  makeNavigable
+  makeDockable,
+  makeFolderSpaceLeafProtected,
+  makeLeafUnreusable,
+  makeNavigable,
+  makePopoutViewsProtected
 } from "./folder-space-explorer.js";
 import {
   collectPopoutColumns,
@@ -107,15 +112,23 @@ export default class FolderSpacesPlugin extends Plugin {
     this.registerFolderMenu();
     this.registerOpenFolderSpaceCommand();
     this.registerOpenFolderSpaceRibbon();
+    this.patchEnsureSideLeaf();
     this.registerEvent(
       this.app.workspace.on("layout-change", () => {
         this.refreshFolderSpaceNavigation();
+        makePopoutViewsProtected(this.app.workspace);
+      })
+    );
+    this.registerEvent(
+      this.app.workspace.on("window-open", () => {
+        makePopoutViewsProtected(this.app.workspace);
       })
     );
     new FileExplorerCompatibilityBridge(this).start();
   }
 
   override onunload(): void {
+    restoreEnsureSideLeaf(this.app.workspace);
     disposePanelActivityTracker(this.app.workspace);
     this.app.workspace.detachLeavesOfType(FOLDER_SPACES_VIEW_TYPE);
     this.app.workspace.detachLeavesOfType(LEGACY_FLAT_FILE_EXPLORER_VIEW_TYPE);
@@ -289,6 +302,34 @@ export default class FolderSpacesPlugin extends Plugin {
     };
   }
 
+  /**
+   * All native sidebar views (tag, outline, backlink, properties, search, ...)
+   * open through `Workspace.ensureSideLeaf`, which always targets the main
+   * window's left/right sidebar. Patch it once so that when such a command is
+   * executed inside a popout window, the view opens in that popout window
+   * following the same mechanism Folder Spaces uses, instead of jumping back
+   * to the main window.
+   */
+  private patchEnsureSideLeaf(): void {
+    const workspace = this.app.workspace;
+    const original = workspace.ensureSideLeaf.bind(workspace);
+
+    const patched = (
+      viewType: string,
+      side: "left" | "right",
+      options?: { active?: boolean; split?: boolean; reveal?: boolean; state?: Record<string, unknown> }
+    ): Promise<WorkspaceLeaf> => {
+      const win = typeof activeWindow !== "undefined" ? activeWindow : window;
+      if (isPopoutWindow(win)) {
+        return openSidebarViewInPopout(workspace, viewType, side, options ?? {}, win);
+      }
+      return original(viewType, side, options);
+    };
+
+    storeEnsureSideLeafOriginal(workspace, original);
+    (workspace as unknown as { ensureSideLeaf: typeof patched }).ensureSideLeaf = patched;
+  }
+
   private async openFolderSpace(
     folder: TFolder,
     location: FolderSpaceLocation,
@@ -441,7 +482,7 @@ export default class FolderSpacesPlugin extends Plugin {
         return this.openFolderSpaceInTabs(sidebar.tabs, folder, context);
       }
 
-      let editorLeaf = this.getActiveLeafInWindow(win) ?? this.getLastLeafInWindow(win);
+      let editorLeaf = getActiveLeafInWindow(workspace, win) ?? getLastLeafInWindow(workspace, win);
       if (editorLeaf && isFolderSpaceLeaf(editorLeaf)) {
         let otherLeaf: WorkspaceLeaf | null = null;
         workspace.iterateAllLeaves((leaf) => {
@@ -565,7 +606,7 @@ export default class FolderSpacesPlugin extends Plugin {
       return this.openFolderSpaceInTabs(targetPane.tabs, folder, context);
     }
 
-    const baseLeaf = this.getActiveLeafInWindow(win) ?? this.getLastLeafInWindow(win);
+    const baseLeaf = getActiveLeafInWindow(workspace, win) ?? getLastLeafInWindow(workspace, win);
     return this.openFolderSpaceInTabs(baseLeaf?.parent, folder, context);
   }
 
@@ -598,25 +639,6 @@ export default class FolderSpacesPlugin extends Plugin {
     return found;
   }
 
-  private getActiveLeafInWindow(win: Window): WorkspaceLeaf | null {
-    const workspace = this.app.workspace;
-    const activeLeaf =
-      typeof workspace.getMostRecentLeaf === "function"
-        ? workspace.getMostRecentLeaf()
-        : workspace.activeLeaf;
-    return activeLeaf && getWindowOfLeaf(activeLeaf) === win ? activeLeaf : null;
-  }
-
-  private getLastLeafInWindow(win: Window): WorkspaceLeaf | null {
-    let lastLeaf: WorkspaceLeaf | null = null;
-    this.app.workspace.iterateAllLeaves((leaf) => {
-      if (getWindowOfLeaf(leaf) === win) {
-        lastLeaf = leaf;
-      }
-    });
-    return lastLeaf;
-  }
-
   private refreshFolderSpaces(): void {
     for (const leaf of this.app.workspace.getLeavesOfType(FOLDER_SPACES_VIEW_TYPE)) {
       const view = leaf.view as View & { folderPath?: string | null; folderIconButtonEl?: HTMLElement };
@@ -633,10 +655,146 @@ export default class FolderSpacesPlugin extends Plugin {
 
   private refreshFolderSpaceNavigation(): void {
     for (const leaf of this.app.workspace.getLeavesOfType(FOLDER_SPACES_VIEW_TYPE)) {
-      makeNavigable(leaf);
+      makeFolderSpaceLeafProtected(leaf);
       makeNavigable(leaf.view);
     }
   }
+}
+
+const ensureSideLeafOriginals = new WeakMap<App["workspace"], App["workspace"]["ensureSideLeaf"]>();
+
+function storeEnsureSideLeafOriginal(
+  workspace: App["workspace"],
+  original: App["workspace"]["ensureSideLeaf"]
+): void {
+  if (!ensureSideLeafOriginals.has(workspace)) {
+    ensureSideLeafOriginals.set(workspace, original);
+  }
+}
+
+function restoreEnsureSideLeaf(workspace: App["workspace"]): void {
+  const original = ensureSideLeafOriginals.get(workspace);
+  if (original) {
+    (workspace as unknown as { ensureSideLeaf: App["workspace"]["ensureSideLeaf"] }).ensureSideLeaf = original;
+    ensureSideLeafOriginals.delete(workspace);
+  }
+}
+
+/**
+ * Opens a native sidebar view (search, tag, outline, backlink, ...) inside a
+ * popout window, mirroring the Folder Space mechanism: reuse an existing leaf
+ * of that type in the window, reuse or create a full-height left/right sidebar
+ * pane, or fall back to the editor area. The view is made dockable so it can
+ * be dragged between splits/tab groups.
+ */
+async function openSidebarViewInPopout(
+  workspace: FolderSpacesPlugin["app"]["workspace"],
+  viewType: string,
+  side: "left" | "right",
+  options: { active?: boolean; split?: boolean; reveal?: boolean; state?: Record<string, unknown> },
+  win: Window
+): Promise<WorkspaceLeaf> {
+  const reveal = options.reveal !== false;
+
+  const existing = workspace.getLeavesOfType(viewType).find((leaf) => getWindowOfLeaf(leaf) === win) ?? null;
+  if (existing) {
+    if (options.state) {
+      await existing.setViewState({ type: viewType, state: options.state });
+    }
+    await existing.loadIfDeferred();
+    if (existing.view) {
+      makeDockable(existing.view);
+    }
+    makeLeafUnreusable(existing);
+    if (reveal) {
+      await workspace.revealLeaf(existing);
+    }
+    if (options.active) {
+      workspace.setActiveLeaf(existing, { focus: true });
+    }
+    return existing;
+  }
+
+  const columns = collectPopoutColumns(win, workspace);
+  const sidebar = side === "left" ? findTrueLeftSidebar(win, columns) : findTrueRightSidebar(win, columns);
+
+  let leaf: WorkspaceLeaf;
+
+  if (sidebar) {
+    leaf = await openViewInTabs(workspace, sidebar.tabs, viewType, options.state);
+  } else {
+    const editorLeaf = getActiveLeafInWindow(workspace, win) ?? getLastLeafInWindow(workspace, win);
+    if (editorLeaf) {
+      const targetNode = getTopLevelNodeInWindow(editorLeaf) || editorLeaf;
+      const isParentNode =
+        targetNode !== editorLeaf &&
+        Boolean((targetNode as unknown as { children?: unknown }).children);
+      const before = side === "left" ? !isParentNode : isParentNode;
+      leaf = workspace.createLeafBySplit(targetNode as unknown as WorkspaceLeaf, "vertical", before);
+      makeNavigable(leaf);
+      await leaf.setViewState({ type: viewType, active: false, state: options.state });
+      scheduleInitialFolderSpaceSplitSizing(leaf, editorLeaf);
+    } else {
+      leaf = workspace.getLeaf("tab");
+      makeNavigable(leaf);
+      await leaf.setViewState({ type: viewType, active: false, state: options.state });
+    }
+  }
+
+  makeNavigable(leaf);
+  makeNavigable(leaf.view);
+  await leaf.loadIfDeferred();
+  if (leaf.view) {
+    makeDockable(leaf.view);
+  }
+  makeLeafUnreusable(leaf);
+  if (reveal) {
+    await workspace.revealLeaf(leaf);
+  }
+  if (options.active) {
+    workspace.setActiveLeaf(leaf, { focus: true });
+  }
+  await workspace.requestSaveLayout();
+  return leaf;
+}
+
+async function openViewInTabs(
+  workspace: FolderSpacesPlugin["app"]["workspace"],
+  tabs: WorkspaceParent | null | undefined,
+  viewType: string,
+  state: Record<string, unknown> | undefined
+): Promise<WorkspaceLeaf> {
+  const children = ((tabs as unknown as { children?: WorkspaceLeaf[] })?.children ?? []) as WorkspaceLeaf[];
+  const leaf = workspace.createLeafInParent(tabs as unknown as WorkspaceSplit, children.length);
+  makeNavigable(leaf);
+  await leaf.setViewState({ type: viewType, active: true, state });
+  makeNavigable(leaf);
+  makeNavigable(leaf.view);
+  return leaf;
+}
+
+function getActiveLeafInWindow(
+  workspace: FolderSpacesPlugin["app"]["workspace"],
+  win: Window
+): WorkspaceLeaf | null {
+  const activeLeaf =
+    typeof workspace.getMostRecentLeaf === "function"
+      ? workspace.getMostRecentLeaf()
+      : workspace.activeLeaf;
+  return activeLeaf && getWindowOfLeaf(activeLeaf) === win ? activeLeaf : null;
+}
+
+function getLastLeafInWindow(
+  workspace: FolderSpacesPlugin["app"]["workspace"],
+  win: Window
+): WorkspaceLeaf | null {
+  let lastLeaf: WorkspaceLeaf | null = null;
+  workspace.iterateAllLeaves((leaf) => {
+    if (getWindowOfLeaf(leaf) === win) {
+      lastLeaf = leaf;
+    }
+  });
+  return lastLeaf;
 }
 
 function createTabInLastSplit(
