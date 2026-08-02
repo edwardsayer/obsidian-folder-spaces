@@ -6,6 +6,8 @@ type LocaleKey =
   | "menuFolderSpacesRightSidebar"
   | "menuFolderSpacesEditor"
   | "menuFolderSpacesWindow"
+  | "menuFolderSpacesDefault"
+  | "commandOpenFolderSpace"
   | "viewName"
   | "emptyTitle"
   | "emptyMissingTitle"
@@ -22,11 +24,16 @@ type LocaleKey =
   | "settingsViewIconModalEmpty"
   | "settingsDefaultFolderViewName"
   | "settingsDefaultFolderViewDesc"
+  | "settingsDefaultOpenLocationName"
+  | "settingsDefaultOpenLocationDesc"
+  | "settingsDefaultOpenLocationMainWindow"
+  | "settingsDefaultOpenLocationPopoutWindow"
   | "actionGoUp"
   | "actionTreeView"
   | "actionFlatView"
   | "actionToggleFolderView"
   | "actionChangeRoot"
+  | "actionFolderIcon"
   | "rootFolderModalPlaceholder"
   | "rootFolderModalEmpty"
   | "actionSelectSubfolder"
@@ -42,6 +49,8 @@ const ENGLISH: LocaleTable = {
   menuFolderSpacesRightSidebar: "Open in right sidebar",
   menuFolderSpacesEditor: "Open in editor area",
   menuFolderSpacesWindow: "Open in new window",
+  menuFolderSpacesDefault: "Open in default location",
+  commandOpenFolderSpace: "Open Folder Space",
   viewName: "Folder Space",
   emptyTitle: "No root folder set",
   emptyMissingTitle: "The configured root folder is unavailable",
@@ -51,19 +60,24 @@ const ENGLISH: LocaleTable = {
   nativeCompatibilityDescription:
     "This Obsidian version does not expose a compatible native File Explorer API. Update Obsidian or check compatibility before using Folder Spaces.",
   settingsViewIconName: "Folder Space icon",
-  settingsViewIconDesc: "Choose the icon used by Folder Space tabs.",
+  settingsViewIconDesc: "Icon shown on Folder Space tabs.",
   settingsViewIconChoose: "Choose icon",
   settingsViewIconReset: "Reset",
   settingsViewIconCurrent: "Current icon: {{icon}}",
   settingsViewIconModalPlaceholder: "Search icons",
   settingsViewIconModalEmpty: "No icons found.",
   settingsDefaultFolderViewName: "Default folder view",
-  settingsDefaultFolderViewDesc: "Choose the view mode used by folders that do not have their own saved mode.",
+  settingsDefaultFolderViewDesc: "Default view mode for folders.",
+  settingsDefaultOpenLocationName: "Default open location",
+  settingsDefaultOpenLocationDesc: "The default location where new Folder Space appears.",
+  settingsDefaultOpenLocationMainWindow: "Main window",
+  settingsDefaultOpenLocationPopoutWindow: "Popout window",
   actionGoUp: "Up to parent folder",
   actionTreeView: "Tree view",
   actionFlatView: "Flat view",
   actionToggleFolderView: "Toggle folder view",
   actionChangeRoot: "Change folder",
+  actionFolderIcon: "Set folder space icon",
   rootFolderModalPlaceholder: "Choose folder",
   rootFolderModalEmpty: "No folders found.",
   actionSelectSubfolder: "Select subfolder",
@@ -78,6 +92,8 @@ const TRADITIONAL_CHINESE: LocaleTable = {
   menuFolderSpacesRightSidebar: "在右側邊欄開啟",
   menuFolderSpacesEditor: "在編輯區開啟",
   menuFolderSpacesWindow: "在新視窗開啟",
+  menuFolderSpacesDefault: "在預設位置開啟",
+  commandOpenFolderSpace: "開啟 Folder Space",
   viewName: "Folder Space",
   emptyTitle: "未設定根目錄",
   emptyMissingTitle: "已設定的根目錄不可用",
@@ -87,19 +103,24 @@ const TRADITIONAL_CHINESE: LocaleTable = {
   nativeCompatibilityDescription:
     "目前的 Obsidian 未提供相容的原生檔案管理器 API。請更新 Obsidian 或確認相容性後再使用 Folder Spaces。",
   settingsViewIconName: "根目錄檢視圖示",
-  settingsViewIconDesc: "選擇 Folder Space 頁籤所使用的圖示。",
+  settingsViewIconDesc: "Folder Space 頁籤顯示的圖示。",
   settingsViewIconChoose: "選擇圖示",
   settingsViewIconReset: "恢復預設",
   settingsViewIconCurrent: "目前圖示：{{icon}}",
   settingsViewIconModalPlaceholder: "搜尋圖示",
   settingsViewIconModalEmpty: "沒有符合的圖示。",
   settingsDefaultFolderViewName: "預設資料夾檢視",
-  settingsDefaultFolderViewDesc: "選擇尚未儲存個別模式的資料夾要使用的檢視模式。",
+  settingsDefaultFolderViewDesc: "資料夾的預設檢視模式。",
+  settingsDefaultOpenLocationName: "預設開啟位置",
+  settingsDefaultOpenLocationDesc: "新 Folder Space 開啟時的預設位置。",
+  settingsDefaultOpenLocationMainWindow: "主視窗",
+  settingsDefaultOpenLocationPopoutWindow: "彈出視窗",
   actionGoUp: "返回上層資料夾",
   actionTreeView: "樹狀檢視",
   actionFlatView: "扁平檢視",
   actionToggleFolderView: "切換資料夾檢視",
   actionChangeRoot: "切換資料夾",
+  actionFolderIcon: "設定資料夾空間圖示",
   rootFolderModalPlaceholder: "選擇資料夾",
   rootFolderModalEmpty: "沒有資料夾",
   actionSelectSubfolder: "進入子資料夾",
@@ -114,6 +135,8 @@ const SIMPLIFIED_CHINESE: LocaleTable = {
   menuFolderSpacesRightSidebar: "在右侧边栏打开",
   menuFolderSpacesEditor: "在编辑区打开",
   menuFolderSpacesWindow: "在新窗口打开",
+  menuFolderSpacesDefault: "在默认位置打开",
+  commandOpenFolderSpace: "打开 Folder Space",
   viewName: "Folder Space",
   emptyTitle: "未设置根目录",
   emptyMissingTitle: "已设置的根目录不可用",
@@ -123,19 +146,24 @@ const SIMPLIFIED_CHINESE: LocaleTable = {
   nativeCompatibilityDescription:
     "当前的 Obsidian 未提供兼容的原生文件管理器 API。请更新 Obsidian 或确认兼容性后再使用 Folder Spaces。",
   settingsViewIconName: "根目录视图图标",
-  settingsViewIconDesc: "选择 Folder Space 标签页使用的图标。",
+  settingsViewIconDesc: "Folder Space 标签页显示的图标。",
   settingsViewIconChoose: "选择图标",
   settingsViewIconReset: "恢复默认",
   settingsViewIconCurrent: "当前图标：{{icon}}",
   settingsViewIconModalPlaceholder: "搜索图标",
   settingsViewIconModalEmpty: "没有匹配的图标。",
   settingsDefaultFolderViewName: "默认文件夹视图",
-  settingsDefaultFolderViewDesc: "选择尚未保存单独模式的文件夹使用的视图模式。",
+  settingsDefaultFolderViewDesc: "文件夹的默认视图模式。",
+  settingsDefaultOpenLocationName: "默认打开位置",
+  settingsDefaultOpenLocationDesc: "新 Folder Space 打开时的默认位置。",
+  settingsDefaultOpenLocationMainWindow: "主窗口",
+  settingsDefaultOpenLocationPopoutWindow: "弹出窗口",
   actionGoUp: "返回上层文件夹",
   actionTreeView: "树状视图",
   actionFlatView: "扁平视图",
   actionToggleFolderView: "切换文件夹视图",
   actionChangeRoot: "切换文件夹",
+  actionFolderIcon: "设置文件夹空间图标",
   rootFolderModalPlaceholder: "选择文件夹",
   rootFolderModalEmpty: "没有文件夹",
   actionSelectSubfolder: "进入子文件夹",

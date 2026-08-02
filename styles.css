@@ -156,6 +156,49 @@
   gap: var(--size-4-2);
 }
 
+/* Options panel grouping related settings */
+
+.folder-spaces-options-panel {
+  margin: var(--size-4-2) 0;
+  padding: var(--size-4-2) 0 var(--size-4-1) var(--size-4-3);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  background-color: var(--background-secondary);
+}
+
+.folder-spaces-options-panel-title,
+.folder-spaces-options-panel-desc {
+  padding-right: var(--size-4-3);
+}
+
+.folder-spaces-options-panel-title {
+  margin-bottom: var(--size-2-1);
+  color: var(--text-normal);
+  font-weight: var(--font-semibold);
+}
+
+.folder-spaces-options-panel-desc {
+  margin-bottom: var(--size-4-2);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.folder-spaces-options-panel .setting-item {
+  margin-right: -1px;
+  padding-top: var(--size-2-2);
+  padding-bottom: var(--size-2-2);
+  border: none;
+  background-color: transparent;
+}
+
+.folder-spaces-options-panel .setting-item:hover {
+  background-color: transparent;
+}
+
+.folder-spaces-options-panel .setting-item:last-child {
+  padding-bottom: 0;
+}
+
 .folder-spaces-icon-preview {
   display: flex;
   align-items: center;

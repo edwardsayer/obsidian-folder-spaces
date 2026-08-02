@@ -34,6 +34,7 @@ import {
 export { isElementVisible };
 import { t } from "./i18n.js";
 import { PanelActivityTracker } from "./panel-activity-tracker.js";
+import { IconPickerModal } from "./ui/icon-picker-modal.js";
 import {
   choosePanelTarget,
   chooseRecentPanel,
@@ -41,6 +42,7 @@ import {
   type PanelCandidate,
   type FolderSpaceCreationCandidate
 } from "./folder-space-routing-policy.js";
+import { getWindowOfLeaf, isPopoutWindow } from "./popout-sidebar.js";
 
 import { FOLDER_SPACES_VIEW_TYPE } from "./api.js";
 export { FOLDER_SPACES_VIEW_TYPE };
@@ -52,9 +54,11 @@ const panelActivityTrackers = new WeakMap<App["workspace"], PanelActivityTracker
 
 export interface FolderSpaceViewOptions {
   getIcon(): string;
+  getFolderIcon?(folderPath: string | null): string;
   getDefaultViewMode?(): FolderSpaceViewMode;
   getFolderViewMode?(folderPath: string): FolderSpaceViewMode | null;
   setFolderViewMode?(folderPath: string, viewMode: FolderSpaceViewMode): void | Promise<void>;
+  setFolderIcon?(folderPath: string, icon: string): void | Promise<void>;
 }
 
 interface InternalTreeItem {
@@ -140,9 +144,11 @@ interface PatchedExplorerView extends InternalExplorerView {
   rootRenameInputEl?: HTMLInputElement;
   flatRenameInputEl?: HTMLInputElement;
   viewModeButtonEl?: HTMLElement;
+  folderIconButtonEl?: HTMLElement;
   getDefaultViewMode(): FolderSpaceViewMode;
   getFolderViewMode(folderPath: string): FolderSpaceViewMode | null;
   setFolderViewMode(folderPath: string, viewMode: FolderSpaceViewMode): void | Promise<void>;
+  setFolderIcon(folderPath: string, icon: string): void | Promise<void>;
   flatItemParents?: Map<InternalTreeItem, InternalTreeItem | null | undefined>;
   flatItemLabels?: Map<InternalTreeItem, FlatItemLabelState>;
   navigation: boolean;
@@ -154,10 +160,14 @@ interface FlatItemLabelState {
   addedNode?: Text;
 }
 
-class RootFolderPickerModal extends FuzzySuggestModal<TFolder> {
+export class FolderPickerModal extends FuzzySuggestModal<TFolder> {
   private readonly folders: TFolder[];
 
-  constructor(app: App, private readonly view: PatchedExplorerView) {
+  constructor(
+    app: App,
+    private readonly onChooseFolder: (folder: TFolder) => void,
+    private readonly selectedPath: string | null = null
+  ) {
     super(app);
     this.folders = getVaultFolders(app).sort((left, right) =>
       left.path.localeCompare(right.path, undefined, { numeric: true, sensitivity: "base" })
@@ -180,19 +190,29 @@ class RootFolderPickerModal extends FuzzySuggestModal<TFolder> {
       cls: "folder-spaces-folder-suggestion-path",
       text: item.item.path
     });
-    if (item.item.path === this.view.folderPath) {
+    if (item.item.path === this.selectedPath) {
       row.addClass("is-selected");
     }
   }
 
   override onChooseItem(item: TFolder): void {
-    setFolderPath(this.view, item.path);
+    this.onChooseFolder(item);
+  }
+}
+
+class RootFolderPickerModal extends FolderPickerModal {
+  constructor(app: App, view: PatchedExplorerView) {
+    super(
+      app,
+      (folder) => setFolderPath(view, folder.path),
+      view.folderPath
+    );
   }
 }
 
 export function createFolderSpaceView(app: App, leaf: WorkspaceLeaf): View {
   return createFolderSpaceViewWithOptions(app, leaf, {
-    getIcon: () => "lucide-folder-closed"
+    getIcon: () => "lucide-folders"
   });
 }
 
@@ -411,7 +431,7 @@ function patchExplorerView(
   const originalAfterCreate = view.afterCreate?.bind(view);
 
   initializeEmptyState(view);
-  view.icon = options.getIcon();
+  view.icon = getFolderSpaceIcon(options, view.folderPath);
   makeNavigable(view);
   if (view.leaf) {
     makeNavigable(view.leaf);
@@ -424,8 +444,9 @@ function patchExplorerView(
   view.getFolderViewMode = (folderPath: string) => normalizeOptionalViewMode(options.getFolderViewMode?.(folderPath));
   view.setFolderViewMode = (folderPath: string, viewMode: FolderSpaceViewMode) =>
     options.setFolderViewMode?.(folderPath, viewMode);
+  view.setFolderIcon = (folderPath: string, icon: string) => options.setFolderIcon?.(folderPath, icon);
   view.getViewType = () => FOLDER_SPACES_VIEW_TYPE;
-  view.getIcon = () => options.getIcon();
+  view.getIcon = () => getFolderSpaceIcon(options, view.folderPath);
 
   view.getDisplayText = () => {
     const rootFolder = getRootFolder(view);
@@ -464,6 +485,7 @@ function patchExplorerView(
       const nextState = normalizeState(state);
       view.folderPath = nextState.folderPath;
       view.viewMode = resolveFolderViewMode(view, nextState.folderPath, nextState.viewMode);
+      view.icon = getFolderSpaceIcon(options, view.folderPath);
       await originalSetState(nextState, result);
       // setState may be implemented by the native explorer and can overwrite
       // properties that were set while the view was being created.
@@ -561,9 +583,14 @@ function patchExplorerView(
   };
 
   view.onFileContextMenu = (event: MouseEvent, file: TAbstractFile) => {
+    const inPopout = isPopoutWindow(getWindowOfLeaf(view.leaf));
     const handler = (menu: Menu, menuFile: TAbstractFile) => {
       if (menuFile instanceof TFolder && view.viewMode === "flat" && isInsideRoot(view, menuFile.path)) {
         patchFlatFolderMenu(menu, view, menuFile);
+      }
+
+      if (menuFile instanceof TFolder && inPopout && isInsideRoot(view, menuFile.path)) {
+        patchSearchInFolderItem(menu, view, menuFile);
       }
     };
 
@@ -639,6 +666,15 @@ function initializeEmptyState(view: PatchedExplorerView): void {
     attr: { "aria-live": "polite" }
   });
 
+  const folderIconButton = folderPath.createDiv({
+    cls: "clickable-icon folder-spaces-action-btn",
+    attr: {
+      "aria-label": t("actionFolderIcon"),
+      "data-tooltip": t("actionFolderIcon")
+    }
+  });
+  setIcon(folderIconButton, view.getIcon());
+
   const folderPathLeft = folderPath.createDiv({ cls: "folder-spaces-folder-path-left" });
   const folderPathText = folderPathLeft.createSpan({ cls: "folder-spaces-folder-path-text" });
 
@@ -708,6 +744,25 @@ function initializeEmptyState(view: PatchedExplorerView): void {
     setViewMode(view, view.viewMode === "flat" ? "tree" : "flat");
   });
 
+  // Folder Icon Button -> Set a custom icon for the current root folder
+  view.registerDomEvent(folderIconButton, "click", (event: MouseEvent) => {
+    event.stopPropagation();
+    if (!view.folderPath) {
+      return;
+    }
+
+    new IconPickerModal(view.app, view.getIcon(), async (icon) => {
+      const folderPath = view.folderPath;
+      if (!folderPath) {
+        return;
+      }
+      await view.setFolderIcon(folderPath, icon);
+      view.icon = view.getIcon();
+      refreshLeafHeader(view);
+      setIcon(folderIconButton, view.getIcon());
+    }).open();
+  });
+
   // More Vertical Button -> Folder Context Menu
   view.registerDomEvent(moreButton, "click", (event: MouseEvent) => {
     event.stopPropagation();
@@ -727,6 +782,7 @@ function initializeEmptyState(view: PatchedExplorerView): void {
   view.folderPathEl = folderPath;
   view.folderPathTextEl = folderPathText;
   view.viewModeButtonEl = viewModeButton;
+  view.folderIconButtonEl = folderIconButton;
 }
 
 function registerCreateButtonsOverride(view: PatchedExplorerView): void {
@@ -781,6 +837,10 @@ function setFolderPath(view: PatchedExplorerView, folderPath: string): void {
   const state = { ...view.getState(), folderPath } as Record<string, unknown>;
   delete state.viewMode;
   void view.setState(state, { history: false });
+}
+
+function getFolderSpaceIcon(options: FolderSpaceViewOptions, folderPath: string | null): string {
+  return options.getFolderIcon?.(folderPath) ?? options.getIcon();
 }
 
 function updateViewModeButtons(view: PatchedExplorerView): void {
@@ -1274,6 +1334,52 @@ function wrapMenuItem(
   }
 }
 
+/**
+ * The native "Search in folder" context menu item always docks the search
+ * view in the main window's left sidebar (workspace.ensureSideLeaf). When the
+ * Folder Space lives in a popout window, re-route the item so the search panel
+ * opens inside that same popout window instead. The item is identified by its
+ * "lucide-folder-search" icon, which is locale-independent.
+ */
+function patchSearchInFolderItem(menu: Menu, view: PatchedExplorerView, folder: TFolder): void {
+  const items = getMenuItems(menu);
+  if (!items) {
+    return;
+  }
+
+  for (const item of items) {
+    const menuItemEl = getMenuItemElement(item);
+    const iconClass = menuItemEl?.querySelector<SVGElement>(".menu-item-icon svg")?.getAttribute("class") ?? "";
+    if (!iconClass.includes("folder-search")) {
+      continue;
+    }
+
+    wrapMenuItem(item, () => {
+      void openFolderSpaceSearch(view, folder);
+    });
+    break;
+  }
+}
+
+async function openFolderSpaceSearch(view: PatchedExplorerView, folder: TFolder): Promise<void> {
+  const query = `path:"${folder.path}/" `;
+  const workspace = view.app.workspace;
+  const win = getWindowOfLeaf(view.leaf);
+  const existingSearchLeaf = win
+    ? workspace.getLeavesOfType("search").find((leaf) => getWindowOfLeaf(leaf) === win)
+    : null;
+
+  try {
+    const leaf = existingSearchLeaf ?? createTabInRoot(workspace, getContentRoot(view), view.leaf);
+    await leaf.setViewState({ type: "search", state: { query } });
+    await workspace.revealLeaf(leaf);
+    workspace.setActiveLeaf(leaf, { focus: true });
+  } catch (error) {
+    console.warn("[folder-spaces] Unable to open search in Folder Space window:", error);
+    new Notice(t("rootUnavailable"));
+  }
+}
+
 function isRenameMenuText(text: string): boolean {
   return text.includes("rename") || text.includes("命名");
 }
@@ -1527,12 +1633,22 @@ function refreshFolderPresentation(view: PatchedExplorerView, saveLayout: boolea
   );
   view.rootEmptyDescriptionEl.setText(t("emptyDescription"));
   updateViewModeButtons(view);
+  syncFolderIconButton(view);
 
   if (saveLayout) {
     void view.app.workspace.requestSaveLayout();
     refreshLeafHeader(view);
     view.requestSort();
   }
+}
+
+function syncFolderIconButton(view: PatchedExplorerView): void {
+  const button = view.folderIconButtonEl;
+  if (!button) {
+    return;
+  }
+  button.empty();
+  setIcon(button, view.getIcon());
 }
 
 function refreshLeafHeader(view: PatchedExplorerView): void {
@@ -1799,7 +1915,7 @@ class FolderSpaceUnsupportedView extends ItemView {
 
   constructor(leaf: WorkspaceLeaf, private readonly options: FolderSpaceViewOptions) {
     super(leaf);
-    this.icon = options.getIcon();
+    this.icon = options.getFolderIcon?.(this.folderPath) ?? options.getIcon();
   }
 
   getRootPath(): string | null {
@@ -1816,7 +1932,7 @@ class FolderSpaceUnsupportedView extends ItemView {
   }
 
   override getIcon(): string {
-    return this.options.getIcon();
+    return this.options.getFolderIcon?.(this.folderPath) ?? this.options.getIcon();
   }
 
   override getDisplayText(): string {

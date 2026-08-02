@@ -15,6 +15,7 @@
     "src/compatibility-helpers.ts",
     "src/api.ts",
     "src/i18n.ts",
+    "src/settings.ts",
     "tests/**/*.ts"
   ]
 }

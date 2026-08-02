@@ -1,7 +1,13 @@
 import { App, Plugin, PluginSettingTab, Setting, setIcon } from "obsidian";
 
 import { t, tf } from "../i18n";
-import { DEFAULT_SETTINGS, type FolderSpacesSettings, resolveViewIcon } from "../settings";
+import {
+  DEFAULT_SETTINGS,
+  type FolderSpaceLocation,
+  type FolderSpacesSettings,
+  resolveOpenLocation,
+  resolveViewIcon
+} from "../settings";
 import { IconPickerModal } from "./icon-picker-modal";
 
 export interface FolderSpacesSettingsController {
@@ -18,6 +24,59 @@ export class FolderSpacesSettingTab extends PluginSettingTab {
   override display(): void {
     const { containerEl } = this;
     containerEl.empty();
+
+    const optionsPanel = containerEl.createDiv({ cls: "folder-spaces-options-panel" });
+    optionsPanel
+      .createDiv({ cls: "folder-spaces-options-panel-title" })
+      .setText(t("settingsDefaultOpenLocationName"));
+    optionsPanel
+      .createDiv({ cls: "folder-spaces-options-panel-desc" })
+      .setText(t("settingsDefaultOpenLocationDesc"));
+
+    const renderLocationDropdown = (
+      panel: HTMLElement,
+      name: string,
+      value: FolderSpaceLocation,
+      apply: (location: FolderSpaceLocation) => void
+    ): void => {
+      new Setting(panel)
+        .setName(name)
+        .addDropdown((dropdown) => {
+          dropdown
+            .addOption("left-sidebar", t("menuFolderSpacesLeftSidebar"))
+            .addOption("right-sidebar", t("menuFolderSpacesRightSidebar"))
+            .addOption("editor", t("menuFolderSpacesEditor"))
+            .addOption("window", t("menuFolderSpacesWindow"))
+            .setValue(value)
+            .onChange(async (next) => {
+              apply(resolveOpenLocation(next as FolderSpaceLocation));
+            });
+        });
+    };
+
+    renderLocationDropdown(
+      optionsPanel,
+      t("settingsDefaultOpenLocationMainWindow"),
+      this.plugin.settings.defaultOpenLocationMain,
+      (location) => {
+        void this.plugin.updateSettings({
+          ...this.plugin.settings,
+          defaultOpenLocationMain: location
+        });
+      }
+    );
+
+    renderLocationDropdown(
+      optionsPanel,
+      t("settingsDefaultOpenLocationPopoutWindow"),
+      this.plugin.settings.defaultOpenLocationPopout,
+      (location) => {
+        void this.plugin.updateSettings({
+          ...this.plugin.settings,
+          defaultOpenLocationPopout: location
+        });
+      }
+    );
 
     new Setting(containerEl)
       .setName(t("settingsDefaultFolderViewName"))
