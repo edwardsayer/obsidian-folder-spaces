@@ -15,6 +15,7 @@ Folder Spaces lets you detach any folder into its own scoped explorer, so you se
 - 🎯 **One context at a time** — Right-click any folder and open it as an independent file tree. Unrelated folders disappear from view, leaving only the project, topic, or task you care about. You keep the benefits of a single vault (links, search, and tags across everything) while working in a visually isolated space.
 - 🧹 **Flat view** — One click flattens the folder tree into a clean, single-level list. Every subfolder becomes a row labeled with its relative path, so you can scan the whole structure at a glance without drilling into nested levels.
 - 🪟 **Distraction-free windows** — Open a Folder Space in its own popout window to separate a task from the main workspace's sidebars and tabs. Work in a clean window without visual noise, and keep it on a second monitor if you like.
+- 📚 **Not just the File Explorer** — you can now open Obsidian's other sidebar views too — outline, backlinks, outgoing links, search, tags, properties, and more (not limited to these) — in a new/popout window, not just folder-scoped explorers.
 - 🔗 **Composable with Window Spaces** — Pair Folder Spaces with [Window Spaces](https://github.com/edwardsayer/obsidian-window-spaces) to save and restore these layouts. Together, they turn Obsidian into a **single-vault, multi-project, multi-theme workspace**: one vault, many independent focus windows, each arranged around its own folder context.
 
 ## Features
@@ -40,7 +41,7 @@ Folder Spaces lets you detach any folder into its own scoped explorer, so you se
 - **Quick open**: use the ribbon icon or the `Open Folder Space` command to pick a folder and open it in the default location.
 - **Popout-aware opening**: run the `Open Folder Space` command or the `Folder Spaces` context-menu submenu from inside a popout window and the new Folder Space opens in that same popout window — reusing or creating a full-height left/right sidebar pane, or opening in the popout's editor area — instead of jumping back to the main window.
 - **Search in the same window**: when a Folder Space lives in a popout window, the native *Search in folder* context-menu action shows its results in that same popout window rather than the main window.
-- **Sidebar views in popouts**: run a native sidebar-view command (Tags, Outline, Backlinks, Properties, Search, ...) from inside a popout window and it opens in that same popout window, draggable between splits and tab groups.
+- **Sidebar views in popouts** (not just the File Explorer): open any native sidebar view — Tags, Outline, Backlinks, Outgoing links, Properties, Search, and more — in a popout window, draggable between splits and tab groups.
 - **Panels are never replaced**: inside a popout window, sidebar panels (backlink, outline, outgoing links, search, ...) and Folder Space explorers are never replaced by an opened note — the note opens on the previously active note tab, or as a new tab in that tab group, while unpinned note tabs keep the normal open-in-current-tab behavior.
 - **Developer API**: public API for third-party plugins (e.g. Window Spaces).
 

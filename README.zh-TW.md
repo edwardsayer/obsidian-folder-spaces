@@ -15,6 +15,7 @@ Folder Spaces 讓你將任意資料夾抽離成獨立的 scoped 檔案總管，�
 - 🎯 **一次只專注一個上下文** — 對任意資料夾按右鍵，即可將其作為獨立的檔案樹開啟。無關的資料夾從視野中消失，只剩下你在乎的專案、主題或任務。你同時享有單一 Vault 的優勢（跨所有內容的連結、搜尋與標籤），又能在視覺上隔離的工作空間中專注作業。
 - 🧹 **扁平檢視 (Flat View)** — 一鍵將資料夾樹壓平為乾淨的單層清單。每個子資料夾成為一個標示相對路徑的列，讓你一眼掃過整個結構，不必一層層展開。
 - 🪟 **無干擾的新視窗** — 在獨立彈出視窗中開啟 Folder Space，將任務與主工作區的側邊欄、分頁區隔開來。在乾淨的視窗中作業，免除視覺干擾，也可放到副螢幕使用。
+- 📚 **不只是檔案總管** — 現在你也可以將 Obsidian 中其他的 Sidebar view——大綱（outline）、反向連結（backlink）、outgoing links、搜尋、標籤、屬性等（不限於這些）——開啟在新的 popout 視窗中，而不只是資料夾範圍的 explorer。
 - 🔗 **與 Window Spaces 搭配** — 搭配 [Window Spaces](https://github.com/edwardsayer/obsidian-window-spaces) 保存與還原這些佈局。兩者配合可將 Obsidian 打造成 **單庫、多專案、多主題的工作空間**：一個 Vault、多個獨立的專注視窗，各自圍繞自己的資料夾上下文排列。
 
 ## 主要功能
@@ -40,7 +41,7 @@ Folder Spaces 讓你將任意資料夾抽離成獨立的 scoped 檔案總管，�
 - **快速開啟**：透過側邊欄功能區圖示或 `開啟 Folder Space` 指令選擇資料夾，並在預設位置開啟。
 - **Popout 視窗感知的開啟**：在 popout 視窗內執行 `開啟 Folder Space` 指令或 `Folder Spaces` 右鍵子選單時，新的 Folder Space 會在**同一個 popout 視窗**內開啟——重用或建立全高左／右側欄，或開啟在 popout 的編輯區——而不會跳回主視窗。
 - **同視窗搜尋**：當 Folder Space 位於 popout 視窗時，原生 *Search in folder* 右鍵動作會在該 popout 視窗內顯示搜尋結果，而非主視窗。
-- **popout 中的側邊欄 view**：在 popout 視窗內執行原生側邊欄 view 的指令（標籤、大綱、反向連結、屬性、搜尋等），會在**同一個 popout 視窗**內開啟，並可在 split／tab group 之間拖曳。
+- **popout 中的側邊欄 view（不只是檔案總管）**：在 popout 視窗中開啟任何原生側邊欄 view——標籤、大綱、反向連結、outgoing links、屬性、搜尋等——並可在 split／tab group 之間拖曳。
 - **面板不會被取代**：在 popout 視窗中，側邊欄面板（backlink、outline、outgoing links、search 等）與 Folder Space explorer 不會被新開啟的 note 取代——note 會開在先前 active 的 note tab 上，或在其 tab group 開新 tab；未 pin 的 note tab 仍維持「開在目前 tab」的一般行為。
 - **開發者 Public API**：供第三方外掛（如 Window Spaces）整合與連動。
 
