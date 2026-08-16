@@ -1,0 +1,52 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "*"
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Folder Spaces
+        uses: actions/checkout@v5
+
+      - name: Checkout ObsidianWindowSpaces (shared engine source)
+        uses: actions/checkout@v5
+        with:
+          repository: edwardsayer/obsidian-window-spaces
+          path: external/obsidian-window-spaces
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+        env:
+          WINDOW_SPACES_SRC: ${{ github.workspace }}/external/obsidian-window-spaces/src/shared
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: main.js,styles.css,manifest.json
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            main.js
+            styles.css
+            manifest.json
+          generate_release_notes: true

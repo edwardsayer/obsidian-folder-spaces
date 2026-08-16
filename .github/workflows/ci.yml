@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Folder Spaces
+        uses: actions/checkout@v5
+
+      - name: Checkout ObsidianWindowSpaces (shared engine source)
+        uses: actions/checkout@v5
+        with:
+          repository: edwardsayer/obsidian-window-spaces
+          path: external/obsidian-window-spaces
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Project health check (structure / version consistency / tsc / shared sync)
+        run: npm run check:project
+        env:
+          WINDOW_SPACES_SRC: ${{ github.workspace }}/external/obsidian-window-spaces/src/shared
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build (includes shared engine byte-identical check)
+        run: npm run build
+        env:
+          WINDOW_SPACES_SRC: ${{ github.workspace }}/external/obsidian-window-spaces/src/shared
+
+      - name: Verify build artifacts
+        run: npm run test:build

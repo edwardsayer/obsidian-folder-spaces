@@ -6,10 +6,18 @@
 	"type": "module",
 	"scripts": {
 		"dev": "node esbuild.config.mjs",
-		"build": "tsc --noEmit --skipLibCheck && node esbuild.config.mjs production",
+		"build": "npm run sync:popout-engine:check && tsc --noEmit --skipLibCheck && node esbuild.config.mjs production",
 		"check": "tsc --noEmit",
+		"check:project": "node scripts/check-project.mjs",
+		"lint": "eslint src --ext .ts",
 		"test": "node scripts/run-tests.mjs",
-		"version": "node version-bump.mjs && git add manifest.json versions.json"
+		"test:build": "node scripts/test-build.mjs",
+		"test:integration": "node --test \"tests/integration/*.test.mjs\"",
+		"obsidian:debug": "node scripts/obsidian-debug.mjs",
+		"version": "node version-bump.mjs && git add manifest.json versions.json",
+		"sync:popout-engine": "node scripts/sync-popout-engine.mjs",
+		"sync:popout-engine:dry": "node scripts/sync-popout-engine.mjs --dry-run",
+		"sync:popout-engine:check": "node scripts/sync-popout-engine.mjs --check"
 	},
 	"keywords": [
 		"obsidian",
@@ -22,7 +30,10 @@
 	"license": "MIT",
 	"devDependencies": {
 		"@types/node": "^25.5.0",
+		"@typescript-eslint/eslint-plugin": "^8.0.0",
+		"@typescript-eslint/parser": "^8.0.0",
 		"esbuild": "^0.27.4",
+		"eslint": "^8.57.0",
 		"obsidian": "^1.12.3",
 		"typescript": "^5.9.3"
 	}
