@@ -251,6 +251,13 @@
   background-color: var(--background-modifier-hover);
 }
 
+/* Filter 按鈕的 active 狀態：不套 accent color，比照內建 tag viewer 的
+   search 按鈕——正常 highlight（hover 背景 + 一般文字色）即可。 */
+.folder-spaces-filter-btn.is-active {
+  color: var(--text-normal);
+  background-color: var(--background-modifier-hover);
+}
+
 .folder-spaces-folder-suggestion-path {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -263,4 +270,60 @@
    新增檔案／排序等動作可從路徑列的右鍵原生 folder menu 取得。 */
 .folder-spaces-compact-header .nav-header:not(.folder-spaces-folder-path) {
   display: none;
+}
+
+/* In-panel file filter row（titlebar 下方，比照原生「Show search filter」） */
+.folder-spaces-filter-row {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--size-2-2);
+  box-sizing: border-box;
+  width: 100%;
+  padding: var(--size-2-2) var(--size-4-2);
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.folder-spaces-filter-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  box-sizing: border-box;
+  height: var(--input-height);
+  padding: var(--size-2-1) var(--size-2-2);
+  font-size: var(--font-ui-small);
+  border-radius: var(--input-radius);
+  background-color: var(--background-modifier-form-field);
+  border: 1px solid var(--background-modifier-border);
+}
+
+.folder-spaces-filter-input:focus {
+  border-color: var(--interactive-accent);
+}
+
+.folder-spaces-filter-clear {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-s);
+}
+
+.folder-spaces-filter-clear:hover {
+  color: var(--text-normal);
+  background-color: var(--background-modifier-hover);
+}
+
+/* 最前方狀態 icon：有父面板 binding → link（可點切換 follow）；
+   無 binding → 顯示 folder space 設定的 folder icon（純顯示，不可點）。 */
+.folder-spaces-folder-path > .folder-spaces-status-icon {
+  flex: 0 0 auto;
+  margin-inline-end: var(--size-2-1);
+  color: var(--text-muted);
+}
+
+.folder-spaces-action-btn.is-static {
+  pointer-events: none;
+  cursor: default;
 }

@@ -48,6 +48,15 @@ import {
   presetToState,
   type FolderSpacePreset
 } from "./presets.js";
+import {
+  compareSortableItems,
+  DEFAULT_FOLDER_SPACE_SORT_ORDER,
+  hasMatchingPathDescendant,
+  normalizeSortOrder,
+  pathContainsQuery,
+  sortByOrder,
+  type FolderSpaceSortOrder
+} from "./folder-space-sort-filter.js";
 import { getWindowOfLeaf, isPopoutWindow } from "./shared/popoutLayout.js";
 import type { PopoutLayoutEngine } from "./shared/popoutLayout.js";
 import {
@@ -76,6 +85,8 @@ export interface FolderSpaceViewOptions {
   getDefaultContentMode?(): FolderSpaceContentMode;
   getFolderContentMode?(folderPath: string): FolderSpaceContentMode | null;
   setFolderContentMode?(folderPath: string, contentMode: FolderSpaceContentMode): void | Promise<void>;
+  getFolderSortOrder?(folderPath: string): FolderSpaceSortOrder | null;
+  setFolderSortOrder?(folderPath: string, order: FolderSpaceSortOrder): void | Promise<void>;
   setFolderIcon?(folderPath: string, icon: string): void | Promise<void>;
   openSearchInWindow?(win: Window, query: string): Promise<WorkspaceLeaf>;
   bindingManager?: PanelBindingManager;
@@ -178,7 +189,14 @@ interface PatchedExplorerView extends InternalExplorerView {
   getDefaultContentMode(): FolderSpaceContentMode;
   getFolderContentMode(folderPath: string): FolderSpaceContentMode | null;
   setFolderContentMode(folderPath: string, contentMode: FolderSpaceContentMode): void | Promise<void>;
+  getFolderSortOrder(folderPath: string): FolderSpaceSortOrder | null;
+  setFolderSortOrder(folderPath: string, order: FolderSpaceSortOrder): void | Promise<void>;
   setFolderIcon(folderPath: string, icon: string): void | Promise<void>;
+  filterQuery: string;
+  sortButtonEl?: HTMLElement;
+  filterButtonEl?: HTMLElement;
+  filterRowEl?: HTMLElement;
+  filterInputEl?: HTMLInputElement;
   setState(
     state: unknown,
     result: ViewStateResult,
@@ -575,6 +593,9 @@ function patchExplorerView(
     normalizeOptionalContentMode(options.getFolderContentMode?.(folderPath));
   view.setFolderContentMode = (folderPath: string, contentMode: FolderSpaceContentMode) =>
     options.setFolderContentMode?.(folderPath, contentMode);
+  view.getFolderSortOrder = (folderPath: string) => normalizeOptionalSortOrder(options.getFolderSortOrder?.(folderPath));
+  view.setFolderSortOrder = (folderPath: string, order: FolderSpaceSortOrder) =>
+    options.setFolderSortOrder?.(folderPath, order);
   view.setFolderIcon = (folderPath: string, icon: string) => options.setFolderIcon?.(folderPath, icon);
   view.openSearchInWindow = options.openSearchInWindow;
   view.getViewType = () => FOLDER_SPACES_VIEW_TYPE;
@@ -588,6 +609,7 @@ function patchExplorerView(
     const items = originalGetSortedFolderItems(folder);
     const rootFolder = getRootFolder(view);
     const depthLimit = getFolderDepthLimit(view.depthMode);
+    const order = getEffectiveSortOrder(view);
 
     if (view.viewMode !== "flat") {
       if (
@@ -598,19 +620,21 @@ function patchExplorerView(
       ) {
         return [];
       }
-      return filterByContentMode(view, items);
+      return applyDisplayFilterAndSort(view, filterByContentMode(view, items), order, folder);
     }
 
     if (!rootFolder || folder === rootFolder) {
-      return items;
+      return applyDisplayFilterAndSort(view, items, order, folder);
     }
 
     // In Flat mode every folder is rendered at the root level. Its native
     // children therefore contain only the files directly inside that folder;
     // descendant folders are rendered as their own root-level groups.
-    return filterByContentMode(
+    return applyDisplayFilterAndSort(
       view,
-      items.filter((item) => item.file instanceof TFile)
+      filterByContentMode(view, items.filter((item) => item.file instanceof TFile)),
+      order,
+      folder
     );
   };
 
@@ -723,6 +747,11 @@ function patchExplorerView(
       const depthLimit = getFolderDepthLimit(view.depthMode);
       if (view.viewMode === "tree" && view.contentMode !== "files" && depthLimit !== null) {
         collapseFoldersBeyondDepth(view, rootFolder, depthLimit);
+        view.tree.infinityScroll.compute();
+      }
+      // 過濾時展開命中鏈的祖先（深度內），讓匹配結果一目了然
+      if (view.filterQuery.trim()) {
+        expandFoldersWithinDepth(view, rootFolder, depthLimit ?? Number.POSITIVE_INFINITY);
         view.tree.infinityScroll.compute();
       }
       if (view.autoRevealFile) {
@@ -867,21 +896,39 @@ function initializeEmptyState(view: PatchedExplorerView): void {
     attr: { "aria-live": "polite" }
   });
 
+  // 最前方的狀態 icon：有父面板 binding → link icon（點擊切換 follow）；
+  // 無 binding → 顯示此 folder space 設定的 folder icon（純顯示）。
+  const statusIcon = folderPath.createDiv({
+    cls: "clickable-icon folder-spaces-action-btn folder-spaces-status-icon",
+    attr: {
+      "aria-label": t("actionFolderIcon"),
+      "data-tooltip": t("actionFolderIcon")
+    }
+  });
+  setIcon(statusIcon, view.getIcon());
+
   const folderPathLeft = folderPath.createDiv({ cls: "folder-spaces-folder-path-left" });
   const folderPathText = folderPathLeft.createSpan({ cls: "folder-spaces-folder-path-text" });
 
   const folderPathActions = folderPath.createDiv({ cls: "folder-spaces-folder-path-actions nav-buttons" });
 
-  const followParentButton = folderPathActions.createDiv({
-    cls: "clickable-icon folder-spaces-action-btn folder-spaces-follow-btn",
+  const filterButton = folderPathActions.createDiv({
+    cls: "clickable-icon folder-spaces-action-btn folder-spaces-filter-btn",
     attr: {
-      "aria-label": t("actionSyncFollowParent"),
-      "data-tooltip": t("actionSyncFollowParent"),
-      "aria-pressed": "true"
+      "aria-label": t("actionFilter"),
+      "data-tooltip": t("actionFilter")
     }
   });
-  setIcon(followParentButton, "lucide-link");
-  followParentButton.toggle(false);
+  setIcon(filterButton, "lucide-filter");
+
+  const sortButton = folderPathActions.createDiv({
+    cls: "clickable-icon folder-spaces-action-btn",
+    attr: {
+      "aria-label": t("actionSortOrder"),
+      "data-tooltip": t("actionSortOrder")
+    }
+  });
+  setIcon(sortButton, "lucide-arrow-up-az");
 
   const viewSettingsButton = folderPathActions.createDiv({
     cls: "clickable-icon folder-spaces-action-btn",
@@ -893,6 +940,80 @@ function initializeEmptyState(view: PatchedExplorerView): void {
   setIcon(viewSettingsButton, "lucide-sliders-horizontal");
 
   view.navFileContainerEl.before(folderPath);
+
+  // In-panel filter row（比照原生「Show search filter」）：點 filter 按鈕展開。
+  const filterRow = view.containerEl.createDiv({ cls: "folder-spaces-filter-row" });
+  const filterInput = filterRow.createEl("input", {
+    type: "text",
+    cls: "folder-spaces-filter-input",
+    attr: {
+      placeholder: t("filterPlaceholder"),
+      "aria-label": t("actionFilter"),
+      spellcheck: "false"
+    }
+  });
+  const filterClear = filterRow.createDiv({
+    cls: "clickable-icon folder-spaces-filter-clear",
+    attr: { "aria-label": t("actionClearFilter"), "data-tooltip": t("actionClearFilter") }
+  });
+  setIcon(filterClear, "lucide-x");
+  filterClear.toggle(false);
+  filterRow.toggle(false);
+  view.navFileContainerEl.before(filterRow);
+
+  // Filter button -> toggle the filter row
+  view.registerDomEvent(filterButton, "click", (event: MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    toggleFilterRow(view);
+  });
+
+  // Filter input -> debounced query application; Esc 清空/收合
+  view.registerDomEvent(
+    filterInput,
+    "input",
+    debounce((event: Event) => {
+      const value = (event.target as HTMLInputElement).value;
+      view.filterQuery = value;
+      filterClear.toggle(!!value.trim());
+      view.requestSort();
+    }, 120, true)
+  );
+  view.registerDomEvent(filterInput, "keydown", (event: KeyboardEvent) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      if (view.filterQuery.trim()) {
+        view.filterQuery = "";
+        filterInput.value = "";
+        filterClear.toggle(false);
+        view.requestSort();
+      } else {
+        toggleFilterRow(view, false);
+        filterButton.focus();
+      }
+    }
+  });
+  view.registerDomEvent(filterClear, "click", (event: MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    view.filterQuery = "";
+    filterInput.value = "";
+    filterClear.toggle(false);
+    view.requestSort();
+  });
+
+  // Sort button -> per-folder sort order menu
+  view.registerDomEvent(sortButton, "click", (event: MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    showSortOrderMenu(view, sortButton);
+  });
+
+  view.filterQuery = "";
+  view.sortButtonEl = sortButton;
+  view.filterButtonEl = filterButton;
+  view.filterRowEl = filterRow;
+  view.filterInputEl = filterInput;
 
   // Left-click on folderPathLeft -> Change folder picker
   view.registerDomEvent(folderPathLeft, "click", (event: MouseEvent) => {
@@ -919,9 +1040,8 @@ function initializeEmptyState(view: PatchedExplorerView): void {
     }
   });
 
-  // Follow Parent Button -> Toggle syncing this panel's folder focus with the
-  // bound parent panel. Only visible when the panel is bound to a parent.
-  view.registerDomEvent(followParentButton, "click", (event: MouseEvent) => {
+  // Status Icon Button -> bound 時切換 follow；未 bound 時為純顯示的 folder icon。
+  view.registerDomEvent(statusIcon, "click", (event: MouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
     if (!view.parentPanelId) {
@@ -955,7 +1075,7 @@ function initializeEmptyState(view: PatchedExplorerView): void {
   view.folderPathEl = folderPath;
   view.folderPathTextEl = folderPathText;
   view.viewSettingsButtonEl = viewSettingsButton;
-  view.followParentButtonEl = followParentButton;
+  view.followParentButtonEl = statusIcon;
 }
 
 /** 開啟資料夾圖示選擇器（header 已併入檢視設定 ⋮；tab 圖示隨之更新）。 */
@@ -973,6 +1093,162 @@ function openFolderIconPicker(view: PatchedExplorerView): void {
     view.icon = view.getIcon();
     refreshLeafHeader(view);
   }).open();
+}
+
+/** 展開/收合 titlebar 下方的 filter input 列。 */
+function toggleFilterRow(view: PatchedExplorerView, force?: boolean): void {
+  const row = view.filterRowEl;
+  const input = view.filterInputEl;
+  if (!row || !input) {
+    return;
+  }
+  const open = force ?? !row.hasClass("is-visible");
+  row.toggle(open);
+  row.toggleClass("is-visible", open);
+  updateFilterButtonState(view);
+  if (open) {
+    input.focus();
+  }
+}
+
+function updateFilterButtonState(view: PatchedExplorerView): void {
+  const row = view.filterRowEl;
+  const button = view.filterButtonEl;
+  if (!row || !button) {
+    return;
+  }
+  button.toggleClass("is-active", row.hasClass("is-visible") || !!view.filterQuery.trim());
+}
+
+/** 依目前 per-folder 排序更新 sort 按鈕圖示。 */
+function updateSortButtonIcon(view: PatchedExplorerView): void {
+  const button = view.sortButtonEl;
+  if (!button) {
+    return;
+  }
+  const order = getEffectiveSortOrder(view);
+  const icon =
+    order.key === "name"
+      ? order.dir === "asc"
+        ? "lucide-arrow-up-az"
+        : "lucide-arrow-down-az"
+      : order.key === "mtime"
+        ? "lucide-history"
+        : "lucide-calendar-days";
+  setIcon(button, icon);
+}
+
+/** Sort 按鈕：開 6 選項排序 menu（同原生 explorer 的 UX），套用並 per-folder 持久化。 */
+function showSortOrderMenu(view: PatchedExplorerView, anchorEl: HTMLElement): void {
+  const menu = new Menu();
+  const current = getEffectiveSortOrder(view);
+  const options: Array<{ order: FolderSpaceSortOrder; label: string }> = [
+    { order: { key: "name", dir: "asc" }, label: t("sortNameAsc") },
+    { order: { key: "name", dir: "desc" }, label: t("sortNameDesc") },
+    { order: { key: "mtime", dir: "desc" }, label: t("sortMtimeNew") },
+    { order: { key: "mtime", dir: "asc" }, label: t("sortMtimeOld") },
+    { order: { key: "ctime", dir: "desc" }, label: t("sortCtimeNew") },
+    { order: { key: "ctime", dir: "asc" }, label: t("sortCtimeOld") }
+  ];
+  for (const option of options) {
+    menu.addItem((item) => {
+      item.setTitle(option.label);
+      item.setChecked(current.key === option.order.key && current.dir === option.order.dir);
+      item.onClick(() => {
+        if (view.folderPath !== null) {
+          view.setFolderSortOrder(view.folderPath, option.order);
+        }
+        updateSortButtonIcon(view);
+        view.requestSort();
+      });
+    });
+  }
+
+  // 檔案動作（從原本的檢視設定 ⋮ 併入，避免選單過長）：
+  menu.addSeparator();
+
+  menu.addItem((item) => {
+    item.setTitle(t("actionRevealCurrentFile"));
+    item.onClick(() => revealCurrentFileInView(view));
+  });
+
+  menu.addItem((item) => {
+    item.setTitle(t("actionAutoRevealCurrentFile"));
+    item.setChecked(view.autoRevealFile);
+    item.onClick(() => {
+      view.autoRevealFile = !view.autoRevealFile;
+      if (view.autoRevealFile && typeof view.revealActiveFile === "function") {
+        view.revealActiveFile();
+      }
+    });
+  });
+
+  menu.addSeparator();
+
+  menu.addItem((item) => {
+    item.setTitle(t("actionCollapseAll"));
+    item.onClick(() => collapseAllFoldersInView(view));
+  });
+
+  menu.addItem((item) => {
+    item.setTitle(t("actionExpandAll"));
+    item.onClick(() => expandAllFoldersInView(view));
+  });
+
+  menu.addSeparator();
+
+  menu.addItem((item) => {
+    item.setTitle(t("actionFolderIcon"));
+    item.onClick(() => openFolderIconPicker(view));
+  });
+
+  const menuDocument = anchorEl.ownerDocument;
+  const menuWindow = menuDocument.defaultView;
+  if (!menuWindow) {
+    return;
+  }
+  menuWindow.setTimeout(() => {
+    if (!anchorEl.isConnected) {
+      return;
+    }
+    const rect = anchorEl.getBoundingClientRect();
+    menu.showAtPosition({ x: rect.left, y: rect.bottom + 4 }, menuDocument);
+  }, 0);
+}
+
+/** 全部收合（tree 資料夾與 flat 群組）。 */
+function collapseAllFoldersInView(view: PatchedExplorerView): void {
+  for (const item of Object.values(view.fileItems)) {
+    if (item.file instanceof TFolder && item.collapsed === false) {
+      void item.setCollapsed?.(true, false);
+    }
+  }
+  if (view.viewMode === "flat" || view.contentMode === "files") {
+    scheduleFlatRefresh(view, "immediate");
+  } else {
+    view.tree.infinityScroll.compute();
+  }
+}
+
+/** 全部展開（tree 資料夾與 flat 群組）。 */
+function expandAllFoldersInView(view: PatchedExplorerView): void {
+  const rootFolder = getRootFolder(view);
+  if (!rootFolder) {
+    return;
+  }
+  expandAllFolders(view, rootFolder);
+  if (view.viewMode === "flat" || view.contentMode === "files") {
+    scheduleFlatRefresh(view, "immediate");
+  } else {
+    view.tree.infinityScroll.compute();
+  }
+}
+
+/** Reveal 目前 active file（展開祖先並捲動至可見）。 */
+function revealCurrentFileInView(view: PatchedExplorerView): void {
+  if (typeof view.revealActiveFile === "function") {
+    view.revealActiveFile();
+  }
 }
 
 function registerCreateButtonsOverride(view: PatchedExplorerView): void {
@@ -1357,13 +1633,6 @@ function showViewSettingsDropdown(view: PatchedExplorerView, anchorEl: HTMLEleme
     item.onClick(() => setContentMode(view, "all"));
   });
 
-  menu.addSeparator();
-
-  menu.addItem((item) => {
-    item.setTitle(t("actionFolderIcon"));
-    item.onClick(() => openFolderIconPicker(view));
-  });
-
   const menuDocument = anchorEl.ownerDocument;
   const menuWindow = menuDocument.defaultView;
   if (!menuWindow) {
@@ -1408,11 +1677,6 @@ function normalizePanelId(value: unknown): string | null | undefined {
 export function refreshChildBindingUI(view: PatchedExplorerView): void {
   const button = view.followParentButtonEl;
   if (!button) {
-    return;
-  }
-
-  button.toggle(Boolean(view.parentPanelId));
-  if (!view.parentPanelId) {
     return;
   }
 
@@ -1547,17 +1811,33 @@ function findSyncFocusItem(
 
 function updateFollowParentButton(view: PatchedExplorerView): void {
   const button = view.followParentButtonEl;
-  if (!button || !view.parentPanelId) {
+  if (!button) {
     return;
   }
 
-  const label = t("actionSyncFollowParent");
-  button.toggleClass("is-active", view.followParent);
-  button.setAttr("aria-pressed", String(view.followParent));
-  button.setAttr("aria-label", label);
-  button.setAttr("data-tooltip", label);
-  button.empty();
-  setIcon(button, view.followParent ? "lucide-link" : "lucide-unlink");
+  if (view.parentPanelId) {
+    // 有父面板 binding → link icon，點擊可切換 follow
+    const label = t("actionSyncFollowParent");
+    button.toggle(true);
+    button.toggleClass("is-static", false);
+    button.toggleClass("is-active", view.followParent);
+    button.setAttr("aria-pressed", String(view.followParent));
+    button.setAttr("aria-label", label);
+    button.setAttr("data-tooltip", label);
+    button.empty();
+    setIcon(button, view.followParent ? "lucide-link" : "lucide-unlink");
+  } else {
+    // 無 binding → 顯示此 folder space 設定的 folder icon（純顯示，不可點）
+    const label = t("actionFolderIcon");
+    button.toggle(true);
+    button.toggleClass("is-static", true);
+    button.toggleClass("is-active", false);
+    button.removeAttribute("aria-pressed");
+    button.setAttr("aria-label", label);
+    button.setAttr("data-tooltip", label);
+    button.empty();
+    setIcon(button, view.getIcon());
+  }
 }
 
 
@@ -2535,6 +2815,9 @@ function refreshFolderPresentation(view: PatchedExplorerView, saveLayout: boolea
   );
   view.rootEmptyDescriptionEl.setText(t("emptyDescription"));
   updateViewSettingsButton(view);
+  updateSortButtonIcon(view);
+  updateFilterButtonState(view);
+  updateFollowParentButton(view);
 
   if (saveLayout) {
     void view.app.workspace.requestSaveLayout();
@@ -2630,6 +2913,8 @@ function getFlatItems(view: PatchedExplorerView, rootFolder: TFolder): InternalT
   const flatItems: InternalTreeItem[] = [];
   const showFolders = view.contentMode !== "files";
   const showFiles = view.contentMode !== "folders";
+  const query = view.filterQuery.trim();
+  const order = getEffectiveSortOrder(view);
 
   const rememberParent = (item: InternalTreeItem, parent: InternalTreeItem | null): void => {
     view.flatItemParents ??= new Map();
@@ -2637,9 +2922,18 @@ function getFlatItems(view: PatchedExplorerView, rootFolder: TFolder): InternalT
     item.parent = parent;
   };
 
-  const collectFolderGroup = (folder: TFolder, relativePath: string, depth: number = 1): void => {
+  // 過濾語意：路徑包含 query 即 match；match 到的資料夾在 depth 條件內顯示其子項目。
+  const collectFolderGroup = (
+    folder: TFolder,
+    relativePath: string,
+    depth: number = 1,
+    parentMatched: boolean = false
+  ): void => {
     const folderItem = view.fileItems[folder.path];
-    if (folderItem && showFolders) {
+    const ownPathMatches = !query || pathContainsQuery(query, relativePath);
+    const folderKept = !query || parentMatched || ownPathMatches || hasMatchingPathDescendant(folder, query);
+
+    if (folderItem && showFolders && folderKept) {
       rememberParent(folderItem, rootItem);
       setFlatItemLabel(view, folderItem, relativePath);
       syncFlatFolderCollapseState(folderItem);
@@ -2650,11 +2944,16 @@ function getFlatItems(view: PatchedExplorerView, rootFolder: TFolder): InternalT
       // When folders are hidden, files lose their folder group and are
       // promoted to the root level instead.
       const fileParent = showFolders ? folderItem ?? rootItem : rootItem;
-      const files = folder.children
-        .filter((file): file is TFile => file instanceof TFile)
-        .sort((left, right) =>
-          left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" })
-        );
+      const files = sortByOrder(
+        folder.children.filter((file): file is TFile => {
+          if (!(file instanceof TFile)) {
+            return false;
+          }
+          // match 到的資料夾顯示其直屬檔案；否則僅顯示路徑包含 query 的檔案
+          return !query || ownPathMatches || pathContainsQuery(query, `${relativePath}/${file.name}`);
+        }),
+        order
+      );
       for (const file of files) {
         const fileItem = view.fileItems[file.path];
         if (fileItem) {
@@ -2675,36 +2974,38 @@ function getFlatItems(view: PatchedExplorerView, rootFolder: TFolder): InternalT
       return;
     }
 
-    const childFolders = folder.children
-      .filter((file): file is TFolder => file instanceof TFolder)
-      .sort((left, right) =>
-        left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" })
-      );
+    const childFolders = sortByOrder(
+      folder.children.filter((file): file is TFolder => file instanceof TFolder),
+      order
+    );
 
     for (const child of childFolders) {
       const childRelativePath = relativePath ? `${relativePath}/${child.name}` : child.name;
-      collectFolderGroup(child, childRelativePath, depth + 1);
+      collectFolderGroup(child, childRelativePath, depth + 1, ownPathMatches);
     }
   };
 
-  const rootFolders = rootFolder.children
-    .filter((file): file is TFolder => file instanceof TFolder)
-    .sort((left, right) =>
-      left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" })
-    );
-    // 一律遞迴收集 root 直屬資料夾：files-only 時子資料夾檔案也要提升顯示
-    // （depth 限制由 collectFolderGroup 內部的遞迴深度控管，含 one-level）。
-    for (const folder of rootFolders) {
-      collectFolderGroup(folder, folder.name, 1);
-    }
+  // 一律遞迴收集 root 直屬資料夾：files-only 時子資料夾檔案也要提升顯示
+  // （depth 限制由 collectFolderGroup 內部的遞迴深度控管，含 one-level）。
+  const rootFolders = sortByOrder(
+    rootFolder.children.filter((file): file is TFolder => file instanceof TFolder),
+    order
+  );
+  for (const folder of rootFolders) {
+    collectFolderGroup(folder, folder.name, 1);
+  }
 
   if (showFiles) {
     // Files directly under the folder space have no folder row to attach to.
-    const rootFiles = rootFolder.children
-      .filter((file): file is TFile => file instanceof TFile)
-      .sort((left, right) =>
-        left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" })
-      );
+    const rootFiles = sortByOrder(
+      rootFolder.children.filter((file): file is TFile => {
+        if (!(file instanceof TFile)) {
+          return false;
+        }
+        return !query || pathContainsQuery(query, file.name);
+      }),
+      order
+    );
     for (const file of rootFiles) {
       const fileItem = view.fileItems[file.path];
       if (fileItem) {
@@ -2719,25 +3020,85 @@ function getFlatItems(view: PatchedExplorerView, rootFolder: TFolder): InternalT
   }
 
   if (!showFolders) {
-    flatItems.sort((left, right) =>
-      getFlatRelativePath(view, left.file).localeCompare(
-        getFlatRelativePath(view, right.file),
-        undefined,
-        { numeric: true, sensitivity: "base" }
-      )
-    );
+    flatItems.sort((left, right) => compareSortableItems(left.file, right.file, order));
   }
 
   return flatItems;
 }
 
-function getFlatRelativePath(view: PatchedExplorerView, file: TAbstractFile): string {
+/** 目前 view 的有效排序（per-folder 記錄優先，否則預設 name/asc）。 */
+function getEffectiveSortOrder(view: PatchedExplorerView): FolderSpaceSortOrder {
+  if (view.folderPath === null) {
+    return DEFAULT_FOLDER_SPACE_SORT_ORDER;
+  }
+  return view.getFolderSortOrder(view.folderPath) ?? DEFAULT_FOLDER_SPACE_SORT_ORDER;
+}
+
+/** 檔案路徑相對 folder space root（過濾比對用，與顯示一致）。 */
+function getRelativePathOf(view: PatchedExplorerView, filePath: string): string {
   if (!view.folderPath) {
-    return file.path;
+    return filePath;
+  }
+  const prefix = `${view.folderPath}/`;
+  return filePath.startsWith(prefix) ? filePath.slice(prefix.length) : filePath;
+}
+
+/**
+ * 過濾＋排序：過濾語意＝「把目前顯示內容展開後，路徑包含輸入文字的項目保留」。
+ * - 項目本身路徑包含 query → 保留（file 或 folder）。
+ * - 資料夾路徑包含 query（match 到 folder）→ 其子項目（在 depth 條件內）一併顯示。
+ * - 資料夾有後代路徑包含 query → 保留（展開祖先鏈）。
+ * 再依 per-folder 排序。
+ */
+function applyDisplayFilterAndSort(
+  view: PatchedExplorerView,
+  items: InternalTreeItem[],
+  order: FolderSpaceSortOrder,
+  containerFolder: TFolder
+): InternalTreeItem[] {
+  const query = view.filterQuery.trim();
+  if (!query) {
+    return items.sort((left, right) => compareSortableItems(left.file, right.file, order));
   }
 
-  const prefix = `${view.folderPath}/`;
-  return file.path.startsWith(prefix) ? file.path.slice(prefix.length) : file.path;
+  const containerMatched = pathContainsQuery(query, getRelativePathOf(view, containerFolder.path));
+  const filtered = items.filter((item) => containerMatched || displayItemMatchesQuery(view, item, query));
+  return filtered.sort((left, right) => compareSortableItems(left.file, right.file, order));
+}
+
+function displayItemMatchesQuery(view: PatchedExplorerView, item: InternalTreeItem, query: string): boolean {
+  const relativePath = getRelativePathOf(view, item.file.path);
+  if (item.file instanceof TFolder) {
+    return pathContainsQuery(query, relativePath) || hasMatchingPathDescendant(item.file, query);
+  }
+  return pathContainsQuery(query, relativePath);
+}
+
+function normalizeOptionalSortOrder(value: unknown): FolderSpaceSortOrder | null {
+  return normalizeSortOrder(value);
+}
+
+/**
+ * 過濾時展開命中鏈的祖先（受限於 depth 限制，避免推翻使用者的層級設定）。
+ */
+function expandFoldersWithinDepth(
+  view: PatchedExplorerView,
+  folder: TFolder,
+  maxDepth: number,
+  depth = 1
+): void {
+  for (const child of folder.children) {
+    if (!(child instanceof TFolder)) {
+      continue;
+    }
+    const item = view.fileItems[child.path];
+    if (item && item.collapsed) {
+      void item.setCollapsed?.(false, false);
+    }
+    if (depth < maxDepth) {
+      expandFoldersWithinDepth(view, child, maxDepth, depth + 1);
+    }
+  }
 }
 
 /**

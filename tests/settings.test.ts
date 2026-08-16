@@ -232,3 +232,21 @@ test("normalizeSettings defaults and normalizes view presets", () => {
   assert.equal(invalid.defaultChildPreset, "contents");
   assert.equal(invalid.autoApplyChildPreset, true);
 });
+
+test("normalizeSettings defaults and normalizes per-folder sort orders", () => {
+  const defaults = normalizeSettings({});
+  assert.deepEqual(defaults.folderSortOrders, {});
+
+  const custom = normalizeSettings({
+    folderSortOrders: {
+      "Projects/Active": { key: "mtime", dir: "desc" },
+      "Projects/Archive": { key: "size", dir: "asc" },
+      "": { key: "name", dir: "asc" },
+      "  Projects/Empty  ": { key: "ctime", dir: "asc" }
+    }
+  });
+  assert.deepEqual(custom.folderSortOrders["Projects/Active"], { key: "mtime", dir: "desc" });
+  assert.equal("Projects/Archive" in custom.folderSortOrders, false);
+  assert.equal("" in custom.folderSortOrders, false);
+  assert.deepEqual(custom.folderSortOrders["Projects/Empty"], { key: "ctime", dir: "asc" });
+});

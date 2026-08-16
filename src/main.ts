@@ -66,6 +66,7 @@ import {
   type FolderSpacesSettings
 } from "./settings.js";
 import { getPreset, presetToState } from "./presets.js";
+import { normalizeSortOrder, type FolderSpaceSortOrder } from "./folder-space-sort-filter.js";
 import { FolderSpacesSettingTab } from "./ui/settings-tab.js";
 
 type FolderSpaceLocation = "left-sidebar" | "right-sidebar" | "editor" | "window";
@@ -144,6 +145,10 @@ export default class FolderSpacesPlugin extends Plugin {
           },
           setFolderIcon: (folderPath, icon) => {
             void this.setFolderIcon(folderPath, icon);
+          },
+          getFolderSortOrder: (folderPath) => this.settings.folderSortOrders[folderPath] ?? null,
+          setFolderSortOrder: (folderPath, order) => {
+            void this.setFolderSortOrder(folderPath, order);
           },
           bindingManager: this.panelBindingManager,
           popoutLayoutEngine: this.popoutLayout,
@@ -246,6 +251,22 @@ export default class FolderSpacesPlugin extends Plugin {
       folderContentModes: {
         ...this.settings.folderContentModes,
         [normalizedPath]: resolveContentMode(contentMode)
+      }
+    });
+  }
+
+  private async setFolderSortOrder(folderPath: string, order: FolderSpaceSortOrder): Promise<void> {
+    const normalizedPath = typeof folderPath === "string" ? folderPath.trim() : null;
+    const normalizedOrder = normalizeSortOrder(order);
+    if (normalizedPath === null || normalizedOrder === null) {
+      return;
+    }
+
+    await this.updateSettings({
+      ...this.settings,
+      folderSortOrders: {
+        ...this.settings.folderSortOrders,
+        [normalizedPath]: normalizedOrder
       }
     });
   }

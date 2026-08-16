@@ -1,7 +1,11 @@
 import type { FolderSpaceViewMode, FolderSpaceDepthMode, FolderSpaceContentMode } from "./compatibility-helpers.js";
 import type { FolderSpacePresetId } from "./presets.js";
 import { resolvePresetId } from "./presets.js";
+import type { FolderSpaceSortOrder } from "./folder-space-sort-filter.js";
+import { normalizeSortOrder } from "./folder-space-sort-filter.js";
 export type { FolderSpaceViewMode, FolderSpaceDepthMode, FolderSpaceContentMode };
+export type { FolderSpaceSortOrder }; 
+export type { FolderSpaceSortKey, FolderSpaceSortDir } from "./folder-space-sort-filter.js";
 
 export type FolderSpaceLocation = "left-sidebar" | "right-sidebar" | "editor" | "window";
 
@@ -28,6 +32,7 @@ export interface FolderSpacesSettings {
   defaultPreset: FolderSpacePresetId;
   defaultChildPreset: FolderSpacePresetId;
   autoApplyChildPreset: boolean;
+  folderSortOrders: Record<string, FolderSpaceSortOrder>;
 }
 
 export const DEFAULT_SETTINGS: FolderSpacesSettings = {
@@ -45,7 +50,8 @@ export const DEFAULT_SETTINGS: FolderSpacesSettings = {
   defaultFollowParentNewWindow: false,
   defaultPreset: "contents",
   defaultChildPreset: "contents",
-  autoApplyChildPreset: true
+  autoApplyChildPreset: true,
+  folderSortOrders: {}
 };
 
 export function normalizeSettings(data: unknown): FolderSpacesSettings {
@@ -71,8 +77,26 @@ export function normalizeSettings(data: unknown): FolderSpacesSettings {
     ),
     defaultPreset: resolvePresetId(settings.defaultPreset, DEFAULT_SETTINGS.defaultPreset),
     defaultChildPreset: resolvePresetId(settings.defaultChildPreset, DEFAULT_SETTINGS.defaultChildPreset),
-    autoApplyChildPreset: normalizeBoolean(settings.autoApplyChildPreset, DEFAULT_SETTINGS.autoApplyChildPreset)
+    autoApplyChildPreset: normalizeBoolean(settings.autoApplyChildPreset, DEFAULT_SETTINGS.autoApplyChildPreset),
+    folderSortOrders: normalizeFolderSortOrders(settings.folderSortOrders)
   };
+}
+
+function normalizeFolderSortOrders(data: unknown): Record<string, FolderSpaceSortOrder> {
+  if (!data || typeof data !== "object") {
+    return {};
+  }
+
+  const normalized: Record<string, FolderSpaceSortOrder> = {};
+  for (const [path, value] of Object.entries(data as Record<string, unknown>)) {
+    const trimmedPath = path.trim();
+    const order = normalizeSortOrder(value);
+    if (!trimmedPath || !order) {
+      continue;
+    }
+    normalized[trimmedPath] = order;
+  }
+  return normalized;
 }
 
 export function resolveOpenLocation(location: unknown): FolderSpaceLocation {

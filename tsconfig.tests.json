@@ -18,6 +18,7 @@
     "src/i18n.ts",
     "src/settings.ts",
     "src/presets.ts",
+    "src/folder-space-sort-filter.ts",
     "tests/**/*.ts"
   ]
 }

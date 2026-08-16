@@ -66,7 +66,21 @@ type LocaleKey =
   | "presetFiles"
   | "presetContext"
   | "presetCustom"
-  | "presetSection";
+  | "presetSection"
+  | "actionFilter"
+  | "filterPlaceholder"
+  | "actionClearFilter"
+  | "actionSortOrder"
+  | "sortNameAsc"
+  | "sortNameDesc"
+  | "sortMtimeNew"
+  | "sortMtimeOld"
+  | "sortCtimeNew"
+  | "sortCtimeOld"
+  | "actionRevealCurrentFile"
+  | "actionAutoRevealCurrentFile"
+  | "actionCollapseAll"
+  | "actionExpandAll";
 
 type LocaleTable = Record<LocaleKey, string>;
 
@@ -137,7 +151,21 @@ const ENGLISH: LocaleTable = {
   presetFiles: "Preset: Files",
   presetContext: "Preset: Context",
   presetCustom: "Custom",
-  presetSection: "Preset"
+  presetSection: "Preset",
+  actionFilter: "Filter files",
+  filterPlaceholder: "Filter…",
+  actionClearFilter: "Clear filter",
+  actionSortOrder: "Sort order",
+  sortNameAsc: "File name (A to Z)",
+  sortNameDesc: "File name (Z to A)",
+  sortMtimeNew: "Modified time (new to old)",
+  sortMtimeOld: "Modified time (old to new)",
+  sortCtimeNew: "Created time (new to old)",
+  sortCtimeOld: "Created time (old to new)",
+  actionRevealCurrentFile: "Reveal current file",
+  actionAutoRevealCurrentFile: "Auto-reveal current file",
+  actionCollapseAll: "Collapse all",
+  actionExpandAll: "Expand all"
 };
 
 const TRADITIONAL_CHINESE: LocaleTable = {
@@ -207,7 +235,21 @@ const TRADITIONAL_CHINESE: LocaleTable = {
   presetFiles: "預設集：檔案",
   presetContext: "預設集：脈絡",
   presetCustom: "自訂",
-  presetSection: "檢視預設集"
+  presetSection: "檢視預設集",
+  actionFilter: "過濾檔案",
+  filterPlaceholder: "過濾…",
+  actionClearFilter: "清除過濾",
+  actionSortOrder: "排序方式",
+  sortNameAsc: "檔名（A 到 Z）",
+  sortNameDesc: "檔名（Z 到 A）",
+  sortMtimeNew: "修改時間（新到舊）",
+  sortMtimeOld: "修改時間（舊到新）",
+  sortCtimeNew: "建立時間（新到舊）",
+  sortCtimeOld: "建立時間（舊到新）",
+  actionRevealCurrentFile: "顯示目前檔案",
+  actionAutoRevealCurrentFile: "自動顯示目前檔案",
+  actionCollapseAll: "全部收合",
+  actionExpandAll: "全部展開"
 };
 
 const SIMPLIFIED_CHINESE: LocaleTable = {
@@ -277,7 +319,21 @@ const SIMPLIFIED_CHINESE: LocaleTable = {
   presetFiles: "预设：文件",
   presetContext: "预设：脉络",
   presetCustom: "自定义",
-  presetSection: "视图预设"
+  presetSection: "视图预设",
+  actionFilter: "筛选文件",
+  filterPlaceholder: "筛选…",
+  actionClearFilter: "清除筛选",
+  actionSortOrder: "排序方式",
+  sortNameAsc: "文件名（A 到 Z）",
+  sortNameDesc: "文件名（Z 到 A）",
+  sortMtimeNew: "修改时间（新到旧）",
+  sortMtimeOld: "修改时间（旧到新）",
+  sortCtimeNew: "创建时间（新到旧）",
+  sortCtimeOld: "创建时间（旧到新）",
+  actionRevealCurrentFile: "显示当前文件",
+  actionAutoRevealCurrentFile: "自动显示当前文件",
+  actionCollapseAll: "全部收起",
+  actionExpandAll: "全部展开"
 };
 
 function safeGetLanguage(): string {
