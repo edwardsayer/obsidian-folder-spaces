@@ -263,3 +263,11 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* 單列精簡 header：隱藏原生 File Explorer 的 toolbar 列（`.nav-header`，
+   含 New note / New folder / Change sort order 等），只保留自訂路徑列
+   （`.folder-spaces-folder-path.nav-header`：path title + follow + 檢視設定 ⋮）。
+   新增檔案／排序等動作可從路徑列的右鍵原生 folder menu 取得。 */
+.folder-spaces-compact-header .nav-header:not(.folder-spaces-folder-path) {
+  display: none;
+}

@@ -29,15 +29,13 @@ Folder Spaces lets you detach any folder into its own scoped explorer, so you se
 - **Independent scoped views**: dedicated folder-scoped explorer views that never alter Obsidian's built-in full-vault File Explorer.
 - **Tree & Flat view modes**: toggle between a nested tree and a clean flat list per folder; the view mode is remembered for each folder.
 - **Workspace restore**: all Folder Space views are restored automatically when Obsidian restarts.
-- **Interactive Header Bar**:
-  - Shows the current root folder path.
+- **Compact single-row header**: the Folder Space header is one row (the native explorer toolbar is hidden — file actions stay available via the native right-click menu on the folder title):
+  - Shows the current root folder path, truncated with a hover tooltip showing the full path.
   - Click the root folder title to open a searchable picker over all vault folders to switch the root — use it to navigate up to the parent folder or down into any subfolder.
-  - Right-click the root folder title to trigger the full native Obsidian folder context menu (`file-menu`).
-  - `View mode` button: toggle between Tree and Flat view for the current folder.
-  - `Folder icon` button: set a custom icon for the current root folder (overrides the global icon).
-  - `More` button (`⋮`): open folder options.
+  - Right-click the root folder title to trigger the full native Obsidian folder context menu (`file-menu`) — including new note / new folder and other file actions.
+  - `View settings` button (⋮): view presets, Tree/Flat style, depth (1/2/all levels), content (folders/files/all), and setting a custom folder icon.
   - Safe rename modal when renaming the root folder.
-- **Searchable icon picker**: set a custom tab icon per root folder from the header bar.
+- **Searchable icon picker**: set a custom tab icon per root folder from the `View settings` menu.
 - **Quick open**: use the ribbon icon or the `Open Folder Space` command to pick a folder and open it in the default location.
 - **Popout-aware opening**: run the `Open Folder Space` command or the `Folder Spaces` context-menu submenu from inside a popout window and the new Folder Space opens in that same popout window — reusing or creating a full-height left/right sidebar pane, or opening in the popout's editor area — instead of jumping back to the main window.
 - **Search in the same window**: when a Folder Space lives in a popout window, the native *Search in folder* context-menu action shows its results in that same popout window rather than the main window.

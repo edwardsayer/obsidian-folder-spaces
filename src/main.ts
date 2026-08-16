@@ -692,15 +692,11 @@ export default class FolderSpacesPlugin extends Plugin {
 
   private refreshFolderSpaces(): void {
     for (const leaf of getLeavesOfTypeAcrossWindows(this.app.workspace, FOLDER_SPACES_VIEW_TYPE)) {
-      const view = leaf.view as View & { folderPath?: string | null; folderIconButtonEl?: HTMLElement };
+      const view = leaf.view as View & { folderPath?: string | null };
       const folderPath = view.folderPath ?? null;
       const icon = this.getFolderSpaceIcon(folderPath);
       view.icon = icon;
       refreshLeafHeader(leaf);
-      if (view.folderIconButtonEl) {
-        view.folderIconButtonEl.empty();
-        setIcon(view.folderIconButtonEl, icon);
-      }
     }
   }
 

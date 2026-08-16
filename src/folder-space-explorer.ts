@@ -169,7 +169,6 @@ interface PatchedExplorerView extends InternalExplorerView {
   flatRenameInputEl?: HTMLInputElement;
   flatRenameEditors?: WeakSet<HTMLElement>;
   viewSettingsButtonEl?: HTMLElement;
-  folderIconButtonEl?: HTMLElement;
   getDefaultViewMode(): FolderSpaceViewMode;
   getFolderViewMode(folderPath: string): FolderSpaceViewMode | null;
   setFolderViewMode(folderPath: string, viewMode: FolderSpaceViewMode): void | Promise<void>;
@@ -854,6 +853,11 @@ function patchExplorerView(
 
 
 function initializeEmptyState(view: PatchedExplorerView): void {
+  // 單列緊湊 header：隱藏原生 File Explorer 的 `.view-header`（new note/folder/
+  // 原生 ⋮ 那列），只保留自訂的路徑列；新增/排序等動作可從路徑列的右鍵
+  // folder menu 取得。樣式見 styles.css 的 .folder-spaces-compact-header。
+  view.containerEl.addClass("folder-spaces-compact-header");
+
   const emptyState = view.containerEl.createDiv({ cls: "folder-spaces-empty-state" });
   const title = emptyState.createDiv({ cls: "folder-spaces-empty-title" });
   const description = emptyState.createDiv({ cls: "folder-spaces-empty-desc" });
@@ -862,15 +866,6 @@ function initializeEmptyState(view: PatchedExplorerView): void {
     cls: "folder-spaces-folder-path nav-header",
     attr: { "aria-live": "polite" }
   });
-
-  const folderIconButton = folderPath.createDiv({
-    cls: "clickable-icon folder-spaces-action-btn",
-    attr: {
-      "aria-label": t("actionFolderIcon"),
-      "data-tooltip": t("actionFolderIcon")
-    }
-  });
-  setIcon(folderIconButton, view.getIcon());
 
   const folderPathLeft = folderPath.createDiv({ cls: "folder-spaces-folder-path-left" });
   const folderPathText = folderPathLeft.createSpan({ cls: "folder-spaces-folder-path-text" });
@@ -947,25 +942,6 @@ function initializeEmptyState(view: PatchedExplorerView): void {
     showViewSettingsDropdown(view, viewSettingsButton);
   });
 
-  // Folder Icon Button -> Set a custom icon for the current root folder
-  view.registerDomEvent(folderIconButton, "click", (event: MouseEvent) => {
-    event.stopPropagation();
-    if (view.folderPath === null) {
-      return;
-    }
-
-    new IconPickerModal(view.app, view.getIcon(), async (icon) => {
-      const folderPath = view.folderPath;
-      if (folderPath === null) {
-        return;
-      }
-      await view.setFolderIcon(folderPath, icon);
-      view.icon = view.getIcon();
-      refreshLeafHeader(view);
-      setIcon(folderIconButton, view.getIcon());
-    }).open();
-  });
-
   view.folderPath = "";
   view.viewMode = "tree";
   view.depthMode = "all-level";
@@ -979,8 +955,24 @@ function initializeEmptyState(view: PatchedExplorerView): void {
   view.folderPathEl = folderPath;
   view.folderPathTextEl = folderPathText;
   view.viewSettingsButtonEl = viewSettingsButton;
-  view.folderIconButtonEl = folderIconButton;
   view.followParentButtonEl = followParentButton;
+}
+
+/** 開啟資料夾圖示選擇器（header 已併入檢視設定 ⋮；tab 圖示隨之更新）。 */
+function openFolderIconPicker(view: PatchedExplorerView): void {
+  if (view.folderPath === null) {
+    return;
+  }
+
+  new IconPickerModal(view.app, view.getIcon(), async (icon) => {
+    const folderPath = view.folderPath;
+    if (folderPath === null) {
+      return;
+    }
+    await view.setFolderIcon(folderPath, icon);
+    view.icon = view.getIcon();
+    refreshLeafHeader(view);
+  }).open();
 }
 
 function registerCreateButtonsOverride(view: PatchedExplorerView): void {
@@ -1363,6 +1355,13 @@ function showViewSettingsDropdown(view: PatchedExplorerView, anchorEl: HTMLEleme
     item.setTitle("Show: All");
     item.setChecked(view.contentMode === "all");
     item.onClick(() => setContentMode(view, "all"));
+  });
+
+  menu.addSeparator();
+
+  menu.addItem((item) => {
+    item.setTitle(t("actionFolderIcon"));
+    item.onClick(() => openFolderIconPicker(view));
   });
 
   const menuDocument = anchorEl.ownerDocument;
@@ -2536,22 +2535,12 @@ function refreshFolderPresentation(view: PatchedExplorerView, saveLayout: boolea
   );
   view.rootEmptyDescriptionEl.setText(t("emptyDescription"));
   updateViewSettingsButton(view);
-  syncFolderIconButton(view);
 
   if (saveLayout) {
     void view.app.workspace.requestSaveLayout();
     refreshLeafHeader(view);
     view.requestSort();
   }
-}
-
-function syncFolderIconButton(view: PatchedExplorerView): void {
-  const button = view.folderIconButtonEl;
-  if (!button) {
-    return;
-  }
-  button.empty();
-  setIcon(button, view.getIcon());
 }
 
 /**
