@@ -2671,8 +2671,10 @@ function getFlatItems(view: PatchedExplorerView, rootFolder: TFolder): InternalT
         if (fileItem) {
           rememberParent(fileItem, fileParent);
           if (!showFolders) {
-            const fileName = view.viewMode === "flat" ? file.basename : file.name;
-            setFlatItemLabel(view, fileItem, `${relativePath}/${fileName}`);
+            // 資料夾群組隱藏時，檔案被提升到 root 層並以「相對路徑/完整檔名」
+            // 標示（含副檔名），讓每個檔案都能看出所在目錄。此分支只在
+            // contentMode=files 時發生（viewMode 必為 flat）。
+            setFlatItemLabel(view, fileItem, `${relativePath}/${file.name}`);
             flatItems.push(fileItem);
           }
         }
@@ -2701,11 +2703,11 @@ function getFlatItems(view: PatchedExplorerView, rootFolder: TFolder): InternalT
     .sort((left, right) =>
       left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" })
     );
-  if (showFolders || getFolderDepthLimit(view.depthMode) !== 1) {
+    // 一律遞迴收集 root 直屬資料夾：files-only 時子資料夾檔案也要提升顯示
+    // （depth 限制由 collectFolderGroup 內部的遞迴深度控管，含 one-level）。
     for (const folder of rootFolders) {
       collectFolderGroup(folder, folder.name, 1);
     }
-  }
 
   if (showFiles) {
     // Files directly under the folder space have no folder row to attach to.
@@ -2719,7 +2721,8 @@ function getFlatItems(view: PatchedExplorerView, rootFolder: TFolder): InternalT
       if (fileItem) {
         rememberParent(fileItem, rootItem);
         if (!showFolders && view.viewMode === "flat") {
-          setFlatItemLabel(view, fileItem, file.basename);
+          // root 直屬檔案以完整檔名顯示（無目錄前綴——其目錄即 scope root）。
+          setFlatItemLabel(view, fileItem, file.name);
         }
         flatItems.push(fileItem);
       }
