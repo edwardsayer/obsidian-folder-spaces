@@ -1,3 +1,7 @@
+/* 自訂 titlebar：樣式貼齊被隱藏的原生 File Explorer toolbar。
+   此列本身已帶 `nav-header` class（Obsidian 原生樣式：42px 高、透明背景、
+   8px padding、15px 字級），因此這裡只保留原生 class 未提供的佈局——
+   不再覆寫 height/background/padding/font-size 等，讓原生樣式直接生效。 */
 .folder-spaces-folder-path {
   display: flex;
   flex: 0 0 auto;
@@ -6,16 +10,7 @@
   box-sizing: border-box;
   width: 100%;
   min-width: 0;
-  height: calc(var(--size-4-2) + var(--size-4-2) + 1.35em + 1px);
-  min-height: calc(var(--size-4-2) + var(--size-4-2) + 1.35em + 1px);
-  max-height: calc(var(--size-4-2) + var(--size-4-2) + 1.35em + 1px);
   overflow: hidden;
-  padding: var(--size-2-2) var(--size-4-2);
-  color: var(--text-muted);
-  font-size: var(--font-ui-small);
-  line-height: 1.35;
-  background-color: var(--background-secondary-alt);
-  border-bottom: 1px solid var(--background-modifier-border);
 }
 
 .folder-spaces-folder-path-left {
@@ -25,8 +20,6 @@
   min-width: 0;
   overflow: hidden;
   cursor: pointer;
-  padding: var(--size-2-1) var(--size-4-1);
-  line-height: 1.35;
 }
 
 .folder-spaces-folder-path-left:hover {
