@@ -34,6 +34,44 @@
   background-color: transparent;
 }
 
+.folder-spaces-folder-path.folder-spaces-sync-focus,
+.tree-item-self.folder-spaces-sync-focus {
+  color: var(--text-accent);
+  background-color: var(--background-modifier-hover);
+  font-weight: 600;
+}
+
+.tree-item-self.folder-spaces-sync-focus .nav-folder-title-content {
+  flex-grow: 1;
+  min-width: 0;
+}
+
+.folder-spaces-sync-source-icon {
+  position: relative;
+  display: block;
+  flex: 0 0 var(--icon-xs);
+  width: var(--icon-xs);
+  height: 0;
+  margin-inline: 0;
+  color: var(--text-accent);
+  align-self: center;
+  pointer-events: none;
+}
+
+.folder-spaces-sync-source-icon svg {
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-start: 0;
+  width: var(--icon-xs);
+  height: var(--icon-xs);
+  transform: translateY(-50%);
+}
+
+/* 只有 icon 後方確實有第三方尾端 decoration 時才保留間隔。 */
+.tree-item-self.folder-spaces-sync-has-tail .folder-spaces-sync-source-icon {
+  margin-inline-end: var(--size-2-1);
+}
+
 .folder-spaces-folder-path-text {
   display: block;
   flex: 1 1 auto;
@@ -150,12 +188,6 @@
   line-height: 1.5;
 }
 
-.folder-spaces-icon-setting .setting-item-control {
-  display: flex;
-  align-items: center;
-  gap: var(--size-4-2);
-}
-
 /* Options panel grouping related settings */
 
 .folder-spaces-options-panel {
@@ -197,24 +229,6 @@
 
 .folder-spaces-options-panel .setting-item:last-child {
   padding-bottom: 0;
-}
-
-.folder-spaces-icon-preview {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 28px;
-  min-height: 28px;
-  color: var(--text-muted);
-}
-
-.folder-spaces-setting-feedback {
-  margin-top: var(--size-2-1);
-  color: var(--text-muted);
-}
-
-.folder-spaces-setting-feedback.mod-warning {
-  color: var(--text-warning);
 }
 
 .folder-spaces-icon-suggestion {

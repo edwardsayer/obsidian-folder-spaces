@@ -13,6 +13,9 @@ import {
   choosePanelTarget,
   chooseRecentPanel,
   chooseFolderSpaceCreationTarget,
+  findExistingFolderSpace,
+  isSameFolderSpaceScope,
+  type FolderSpaceScopeCandidate,
   type PanelCandidate
 } from "../src/folder-space-routing-policy.js";
 
@@ -194,14 +197,81 @@ test("chooseFolderSpaceCreationTarget respects strict folder boundaries and fall
     "Projects/Sub"
   );
 
-  // Null folderPath case
+  // Null folderPath case defaults to vault root
   assert.equal(
     chooseFolderSpaceCreationTarget(
       null,
       { path: "Projects/Sub", kind: "folder", parentPath: "Projects" },
       null
     ),
+    "Projects/Sub"
+  );
+
+  // Vault root folderPath (empty path) contains every candidate
+  assert.equal(
+    chooseFolderSpaceCreationTarget(
+      "",
+      { path: "Projects/Sub", kind: "folder", parentPath: "Projects" },
+      null
+    ),
+    "Projects/Sub"
+  );
+  assert.equal(
+    chooseFolderSpaceCreationTarget(
+      "",
+      { path: "Outside/Doc.md", kind: "file", parentPath: "Outside" },
+      null
+    ),
+    "Outside"
+  );
+  // Vault root falls back to the root itself when no candidate matches
+  assert.equal(chooseFolderSpaceCreationTarget("", null, null), "");
+});
+
+test("Folder Space scope identity requires the same window, region, and path", () => {
+  const mainWindow = {} as Window;
+  const popoutWindow = {} as Window;
+  const base = { folderPath: "Projects", location: "editor" as const, window: mainWindow };
+
+  assert.equal(isSameFolderSpaceScope(base, { ...base }), true);
+  assert.equal(isSameFolderSpaceScope(base, { ...base, folderPath: "Notes" }), false);
+  assert.equal(isSameFolderSpaceScope(base, { ...base, location: "left-sidebar" }), false);
+  assert.equal(isSameFolderSpaceScope(base, { ...base, window: popoutWindow }), false);
+});
+
+test("Folder Space uniqueness reuses only a matching window and region", () => {
+  const mainWindow = {} as Window;
+  const popoutWindow = {} as Window;
+  const candidates: FolderSpaceScopeCandidate<string>[] = [
+    { leaf: "editor-projects", folderPath: "Projects", location: "editor", window: mainWindow },
+    { leaf: "sidebar-projects", folderPath: "Projects", location: "left-sidebar", window: mainWindow },
+    { leaf: "editor-notes", folderPath: "Notes", location: "editor", window: mainWindow },
+    { leaf: "popout-projects", folderPath: "Projects", location: "editor", window: popoutWindow }
+  ];
+
+  assert.equal(
+    findExistingFolderSpace(candidates, {
+      folderPath: "Projects",
+      location: "editor",
+      window: mainWindow
+    }),
+    "editor-projects"
+  );
+  assert.equal(
+    findExistingFolderSpace(candidates, {
+      folderPath: "Projects",
+      location: "right-sidebar",
+      window: mainWindow
+    }),
     null
+  );
+  assert.equal(
+    findExistingFolderSpace(candidates, {
+      folderPath: "Projects",
+      location: "editor",
+      window: popoutWindow
+    }),
+    "popout-projects"
   );
 });
 
@@ -211,4 +281,20 @@ test("folder path bar stays non-shrinking and ellipsizes its text child", () => 
 
   assert.match(styles, /\.folder-spaces-folder-path\s*\{[\s\S]*flex:\s*0 0 auto/);
   assert.match(styles, /\.folder-spaces-folder-path-text\s*\{[\s\S]*text-overflow:\s*ellipsis/);
+  assert.match(
+    styles,
+    /\.folder-spaces-folder-path\.folder-spaces-sync-focus,[\s\S]*\.tree-item-self\.folder-spaces-sync-focus\s*\{[\s\S]*background-color:\s*var\(--background-modifier-hover\)/
+  );
+  assert.match(
+    styles,
+    /\.tree-item-self\.folder-spaces-sync-focus \.nav-folder-title-content\s*\{[\s\S]*flex-grow:\s*1/
+  );
+  assert.match(styles, /\.folder-spaces-sync-source-icon\s*\{[\s\S]*flex:\s*0 0 var\(--icon-xs\)/);
+  assert.match(styles, /\.folder-spaces-sync-source-icon\s*\{[\s\S]*height:\s*0/);
+  assert.match(styles, /\.folder-spaces-sync-source-icon\s*\{[\s\S]*margin-inline:\s*0/);
+  assert.match(
+    styles,
+    /\.tree-item-self\.folder-spaces-sync-has-tail \.folder-spaces-sync-source-icon\s*\{[\s\S]*margin-inline-end:\s*var\(--size-2-1\)/
+  );
+  assert.match(styles, /\.folder-spaces-sync-source-icon svg\s*\{[\s\S]*position:\s*absolute/);
 });

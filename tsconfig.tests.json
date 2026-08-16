@@ -1,8 +1,8 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -11,6 +11,7 @@
   },
   "include": [
     "src/panel-activity-tracker.ts",
+    "src/panel-binding.ts",
     "src/folder-space-routing-policy.ts",
     "src/compatibility-helpers.ts",
     "src/api.ts",

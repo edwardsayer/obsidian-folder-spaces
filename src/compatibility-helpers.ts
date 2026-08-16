@@ -173,30 +173,62 @@ export function makeNavigable(target: unknown): boolean {
 }
 
 export type FolderSpaceViewMode = "tree" | "flat";
+export type FolderSpaceDepthMode = "one-level" | "two-level" | "all-level";
+export type FolderSpaceContentMode = "folders" | "files" | "all";
 
-export function normalizeState(
-  state: unknown
-): Record<string, unknown> & { folderPath: string | null; viewMode?: FolderSpaceViewMode } {
+export interface FolderSpaceDisplayState {
+  folderPath: string;
+  viewMode?: FolderSpaceViewMode;
+  depthMode?: FolderSpaceDepthMode;
+  contentMode?: FolderSpaceContentMode;
+}
+
+export function normalizeState(state: unknown): Record<string, unknown> & FolderSpaceDisplayState {
   const objectState =
     state && typeof state === "object" ? ({ ...(state as Record<string, unknown>) } as Record<string, unknown>) : {};
 
   const folderPath = objectState.folderPath;
-  objectState.folderPath = typeof folderPath === "string" && folderPath.trim().length > 0 ? folderPath.trim() : null;
-
-  if (objectState.viewMode === "tree" || objectState.viewMode === "flat") {
-    objectState.viewMode = objectState.viewMode;
+  if (folderPath === "") {
+    // The empty path represents the vault root folder.
+    objectState.folderPath = "";
+  } else if (typeof folderPath === "string" && folderPath.trim().length > 0) {
+    objectState.folderPath = folderPath.trim();
   } else {
+    objectState.folderPath = "";
+  }
+
+  if (objectState.viewMode !== "tree" && objectState.viewMode !== "flat") {
     delete objectState.viewMode;
   }
 
-  return objectState as Record<string, unknown> & {
-    folderPath: string | null;
-    viewMode?: FolderSpaceViewMode;
-  };
+  if (
+    objectState.depthMode !== "one-level" &&
+    objectState.depthMode !== "two-level" &&
+    objectState.depthMode !== "all-level"
+  ) {
+    delete objectState.depthMode;
+  }
+
+  if (
+    objectState.contentMode !== "folders" &&
+    objectState.contentMode !== "files" &&
+    objectState.contentMode !== "all"
+  ) {
+    delete objectState.contentMode;
+  }
+
+  return objectState as Record<string, unknown> & FolderSpaceDisplayState;
 }
 
 export function isPathInsideFolder(path: string | null | undefined, folderPath: string | null | undefined): boolean {
-  if (!path || !folderPath) {
+  if (!path) {
+    return false;
+  }
+  if (folderPath === "") {
+    // The vault root contains every path.
+    return true;
+  }
+  if (!folderPath) {
     return false;
   }
   return path === folderPath || path.startsWith(`${folderPath}/`);
@@ -205,3 +237,18 @@ export function isPathInsideFolder(path: string | null | undefined, folderPath: 
 export function isHTMLElement(value: HTMLElement | undefined): value is HTMLElement {
   return value instanceof HTMLElement;
 }
+
+export function getFolderSpaceTitle(
+  app: { vault: { getName(): string } } | null | undefined,
+  folderPath: string | null | undefined
+): string {
+  const vaultName = app?.vault?.getName() ?? "";
+  if (!folderPath || folderPath.trim() === "") {
+    return vaultName;
+  }
+
+  const segments = folderPath.split("/");
+  const lastSegment = segments[segments.length - 1]?.trim();
+  return lastSegment || vaultName;
+}
+

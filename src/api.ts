@@ -82,8 +82,15 @@ export function getFolderPath(target: unknown): string | null {
 
 
 export function getFolderSpaces(app: App): FolderSpaceView[] {
-	return app.workspace
-		.getLeavesOfType(FOLDER_SPACES_VIEW_TYPE)
-		.map((leaf) => leaf.view as unknown as FolderSpaceView)
-    .filter((view) => Boolean(view));
+  const views: FolderSpaceView[] = [];
+  app.workspace.iterateAllLeaves((leaf) => {
+    if (leaf.getViewState().type !== FOLDER_SPACES_VIEW_TYPE) {
+      return;
+    }
+    const view = leaf.view as unknown as FolderSpaceView | undefined;
+    if (view) {
+      views.push(view);
+    }
+  });
+  return views;
 }

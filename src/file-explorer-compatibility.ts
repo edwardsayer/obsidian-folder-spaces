@@ -125,10 +125,17 @@ export class FileExplorerCompatibilityBridge {
   }
 
   private getViewsOfType(type: string): FileExplorerViewLike[] {
-    return this.plugin.app.workspace
-      .getLeavesOfType(type)
-      .map((leaf) => leaf.view as FileExplorerViewLike)
-      .filter((view) => view.containerEl instanceof HTMLElement && Boolean(view.fileItems));
+    const views: FileExplorerViewLike[] = [];
+    this.plugin.app.workspace.iterateAllLeaves((leaf) => {
+      if (leaf.getViewState().type !== type) {
+        return;
+      }
+      const view = leaf.view as FileExplorerViewLike;
+      if (view.containerEl instanceof HTMLElement && Boolean(view.fileItems)) {
+        views.push(view);
+      }
+    });
+    return views;
   }
 
   private getSourceAttributesByPath(sourceViews: FileExplorerViewLike[]): Map<string, Map<string, string>> {

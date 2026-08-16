@@ -37,7 +37,7 @@ Folder Spaces lets you detach any folder into its own scoped explorer, so you se
   - `Folder icon` button: set a custom icon for the current root folder (overrides the global icon).
   - `More` button (`⋮`): open folder options.
   - Safe rename modal when renaming the root folder.
-- **Searchable icon picker**: customize Folder Space tab icons — a global icon in settings, or a custom icon per root folder from the header bar.
+- **Searchable icon picker**: set a custom tab icon per root folder from the header bar.
 - **Quick open**: use the ribbon icon or the `Open Folder Space` command to pick a folder and open it in the default location.
 - **Popout-aware opening**: run the `Open Folder Space` command or the `Folder Spaces` context-menu submenu from inside a popout window and the new Folder Space opens in that same popout window — reusing or creating a full-height left/right sidebar pane, or opening in the popout's editor area — instead of jumping back to the main window.
 - **Search in the same window**: when a Folder Space lives in a popout window, the native *Search in folder* context-menu action shows its results in that same popout window rather than the main window.
@@ -65,7 +65,6 @@ Think of each Folder Space as a **focus room** for one project, topic, or workfl
 
 ## Settings
 
-- **Folder Space icon**: choose the icon used by Folder Space tabs.
 - **Default folder view**: choose the view mode (Tree or Flat) used by folders that do not have their own saved mode.
 - **Default open location**: choose where new Folder Spaces appear — set separately for the main window and for popout windows (left sidebar, right sidebar, editor area, or new window).
 

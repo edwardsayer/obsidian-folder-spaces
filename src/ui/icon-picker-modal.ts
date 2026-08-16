@@ -1,6 +1,6 @@
 import { App, FuzzySuggestModal, getIconIds, setIcon } from "obsidian";
 
-import { t } from "../i18n";
+import { t } from "../i18n.js";
 
 export class IconPickerModal extends FuzzySuggestModal<string> {
   private readonly icons: string[];
@@ -12,8 +12,8 @@ export class IconPickerModal extends FuzzySuggestModal<string> {
   ) {
     super(app);
     this.icons = getIconIds().slice().sort((left, right) => left.localeCompare(right));
-    this.emptyStateText = t("settingsViewIconModalEmpty");
-    this.setPlaceholder(t("settingsViewIconModalPlaceholder"));
+    this.emptyStateText = t("iconPickerModalEmpty");
+    this.setPlaceholder(t("iconPickerModalPlaceholder"));
   }
 
   override getItems(): string[] {

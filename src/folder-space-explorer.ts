@@ -13,18 +13,20 @@ import {
   ViewStateResult,
   WorkspaceLeaf,
   type PaneType,
-  type WorkspaceParent,
-  type WorkspaceSplit,
   debounce,
-  setIcon
+  setIcon,
+  setTooltip
 } from "obsidian";
 
 import {
   findToolbarButton,
+  getFolderSpaceTitle,
   isPathInsideFolder,
   makeNavigable,
   normalizeState,
-  type FolderSpaceViewMode
+  type FolderSpaceViewMode,
+  type FolderSpaceDepthMode,
+  type FolderSpaceContentMode
 } from "./compatibility-helpers.js";
 export { makeNavigable };
 import {
@@ -40,7 +42,13 @@ import {
   chooseFolderSpaceCreationTarget,
   type FolderSpaceCreationCandidate
 } from "./folder-space-routing-policy.js";
-import { getWindowOfLeaf, isPopoutWindow } from "./popout-sidebar.js";
+import { getWindowOfLeaf, isPopoutWindow } from "./shared/popoutLayout.js";
+import type { PopoutLayoutEngine } from "./shared/popoutLayout.js";
+import {
+  generatePanelId,
+  type FolderPathChangeOptions,
+  type PanelBindingManager
+} from "./panel-binding.js";
 
 import { FOLDER_SPACES_VIEW_TYPE } from "./api.js";
 export { FOLDER_SPACES_VIEW_TYPE };
@@ -56,7 +64,17 @@ export interface FolderSpaceViewOptions {
   getDefaultViewMode?(): FolderSpaceViewMode;
   getFolderViewMode?(folderPath: string): FolderSpaceViewMode | null;
   setFolderViewMode?(folderPath: string, viewMode: FolderSpaceViewMode): void | Promise<void>;
+  getDefaultDepthMode?(): FolderSpaceDepthMode;
+  getFolderDepthMode?(folderPath: string): FolderSpaceDepthMode | null;
+  setFolderDepthMode?(folderPath: string, depthMode: FolderSpaceDepthMode): void | Promise<void>;
+  getDefaultContentMode?(): FolderSpaceContentMode;
+  getFolderContentMode?(folderPath: string): FolderSpaceContentMode | null;
+  setFolderContentMode?(folderPath: string, contentMode: FolderSpaceContentMode): void | Promise<void>;
   setFolderIcon?(folderPath: string, icon: string): void | Promise<void>;
+  openSearchInWindow?(win: Window, query: string): Promise<WorkspaceLeaf>;
+  bindingManager?: PanelBindingManager;
+  onContextMenuOpen?(leaf: WorkspaceLeaf): void;
+  popoutLayoutEngine?: PopoutLayoutEngine;
 }
 
 interface InternalTreeItem {
@@ -134,6 +152,8 @@ interface InternalExplorerView extends View {
 interface PatchedExplorerView extends InternalExplorerView {
   folderPath: string | null;
   viewMode: FolderSpaceViewMode;
+  depthMode: FolderSpaceDepthMode;
+  contentMode: FolderSpaceContentMode;
   rootEmptyStateEl: HTMLDivElement;
   rootEmptyTitleEl: HTMLDivElement;
   rootEmptyDescriptionEl: HTMLDivElement;
@@ -141,15 +161,43 @@ interface PatchedExplorerView extends InternalExplorerView {
   folderPathTextEl: HTMLSpanElement;
   rootRenameInputEl?: HTMLInputElement;
   flatRenameInputEl?: HTMLInputElement;
-  viewModeButtonEl?: HTMLElement;
+  flatRenameEditors?: WeakSet<HTMLElement>;
+  viewSettingsButtonEl?: HTMLElement;
   folderIconButtonEl?: HTMLElement;
   getDefaultViewMode(): FolderSpaceViewMode;
   getFolderViewMode(folderPath: string): FolderSpaceViewMode | null;
   setFolderViewMode(folderPath: string, viewMode: FolderSpaceViewMode): void | Promise<void>;
+  getDefaultDepthMode(): FolderSpaceDepthMode;
+  getFolderDepthMode(folderPath: string): FolderSpaceDepthMode | null;
+  setFolderDepthMode(folderPath: string, depthMode: FolderSpaceDepthMode): void | Promise<void>;
+  getDefaultContentMode(): FolderSpaceContentMode;
+  getFolderContentMode(folderPath: string): FolderSpaceContentMode | null;
+  setFolderContentMode(folderPath: string, contentMode: FolderSpaceContentMode): void | Promise<void>;
   setFolderIcon(folderPath: string, icon: string): void | Promise<void>;
+  setState(
+    state: unknown,
+    result: ViewStateResult,
+    changeOptions?: FolderPathChangeOptions
+  ): Promise<void>;
   flatItemParents?: Map<InternalTreeItem, InternalTreeItem | null | undefined>;
   flatItemLabels?: Map<InternalTreeItem, FlatItemLabelState>;
+  _flatRefreshTimer?: number;
   navigation: boolean;
+  panelId: string;
+  parentPanelId: string | null;
+  followParent: boolean;
+  bindingManager: PanelBindingManager | null;
+  popoutLayoutEngine?: PopoutLayoutEngine;
+  followParentButtonEl?: HTMLElement;
+  syncFocusItem?: InternalTreeItem;
+  syncFocusIconEl?: HTMLElement;
+  syncFocusHeaderEl?: HTMLElement;
+  syncFocusDecorationObserver?: MutationObserver;
+  setFolderPath(path: string | null, options?: FolderPathChangeOptions): void;
+  isAlive(): boolean;
+  onBindingChanged(): void;
+  openSearchInWindow?: (win: Window, query: string) => Promise<WorkspaceLeaf>;
+  addAction?(icon: string, title: string, callback: (evt: MouseEvent) => unknown): HTMLElement | null;
 }
 
 interface FlatItemLabelState {
@@ -179,14 +227,14 @@ export class FolderPickerModal extends FuzzySuggestModal<TFolder> {
   }
 
   override getItemText(item: TFolder): string {
-    return item.path;
+    return item.isRoot() ? "/" : item.path;
   }
 
   override renderSuggestion(item: { item: TFolder }, el: HTMLElement): void {
     const row = el.createDiv({ cls: "folder-spaces-folder-suggestion" });
     row.createDiv({
       cls: "folder-spaces-folder-suggestion-path",
-      text: item.item.path
+      text: item.item.isRoot() ? "/" : item.item.path
     });
     if (item.item.path === this.selectedPath) {
       row.addClass("is-selected");
@@ -323,6 +371,40 @@ export function makeLeafUnreusable(leaf: WorkspaceLeaf): void {
 export function makeFolderSpaceLeafProtected(leaf: WorkspaceLeaf): void {
   makeNavigable(leaf);
   makeLeafUnreusable(leaf);
+  protectLeafFromRebuild(leaf);
+}
+
+/**
+ * Window Spaces 的 restore 流程以 `.view-content` 是否有子元素判斷 view 是否
+ * 已渲染，並對「未渲染」的 leaf 反覆執行 `rebuildView()`（整棵樹重繪）。
+ * Folder Space 重用 native File Explorer 的 DOM 結構（nav-header /
+ * nav-files-container，沒有 `.view-content`），會被誤判為未渲染而在 popout
+ * restore 後被連續重建多次，造成 explorer tree 抖動。此處讓 `rebuildView`
+ * 對已渲染的 Folder Space leaf 變成 no-op，避免樹被反覆重繪。
+ */
+function protectLeafFromRebuild(leaf: WorkspaceLeaf): void {
+  const leafWithRebuild = leaf as WorkspaceLeaf & {
+    rebuildView?: () => Promise<void>;
+    _folderSpacesRebuildProtected?: boolean;
+  };
+  const originalRebuild = leafWithRebuild.rebuildView;
+  if (!originalRebuild || leafWithRebuild._folderSpacesRebuildProtected) {
+    return;
+  }
+
+  leafWithRebuild._folderSpacesRebuildProtected = true;
+  leafWithRebuild.rebuildView = () => {
+    const view = leaf.view as { navFileContainerEl?: HTMLElement } | null;
+    const hasRenderedTree =
+      view !== null &&
+      view !== undefined &&
+      view.navFileContainerEl !== undefined &&
+      view.navFileContainerEl.childElementCount > 0;
+    if (hasRenderedTree) {
+      return Promise.resolve();
+    }
+    return originalRebuild.call(leaf);
+  };
 }
 
 function getFileExplorerCreator(app: App): ViewCreator | null {
@@ -441,7 +523,6 @@ function patchExplorerView(
   const originalLoad = view.load.bind(view);
   const originalGetState = view.getState.bind(view);
   const originalSetState = view.setState.bind(view);
-  const originalGetDisplayText = view.getDisplayText.bind(view);
   const originalGetSortedFolderItems = view.getSortedFolderItems.bind(view);
   const originalSort = view.sort.bind(view);
   const originalRevealInFolder = view.revealInFolder.bind(view);
@@ -459,32 +540,62 @@ function patchExplorerView(
   }
   registerTreeNavigationOverride(view);
 
+  view.panelId = generatePanelId();
+  view.parentPanelId = null;
+  view.followParent = true;
+  view.bindingManager = options.bindingManager ?? null;
+  view.popoutLayoutEngine = options.popoutLayoutEngine;
+  view.setFolderPath = (path: string | null, changeOptions?: FolderPathChangeOptions) =>
+    setFolderPath(view, path, changeOptions);
+  view.isAlive = () => Boolean(view.leaf) && view.leaf.view === view;
+  view.onBindingChanged = () => {
+    refreshChildBindingUI(view);
+    refreshSyncFocusMarker(view);
+  };
+  view.addAction = (icon: string, title: string, callback: (evt: MouseEvent) => unknown) =>
+    addFolderSpaceAction(view, icon, title, callback);
+
   (view as unknown as { isFolderSpace: boolean }).isFolderSpace = true;
   (view as unknown as { getFolderPath: () => string | null }).getFolderPath = () => view.folderPath;
   view.getDefaultViewMode = () => normalizeViewMode(options.getDefaultViewMode?.());
   view.getFolderViewMode = (folderPath: string) => normalizeOptionalViewMode(options.getFolderViewMode?.(folderPath));
   view.setFolderViewMode = (folderPath: string, viewMode: FolderSpaceViewMode) =>
     options.setFolderViewMode?.(folderPath, viewMode);
+  view.getDefaultDepthMode = () => normalizeDepthMode(options.getDefaultDepthMode?.());
+  view.getFolderDepthMode = (folderPath: string) => normalizeOptionalDepthMode(options.getFolderDepthMode?.(folderPath));
+  view.setFolderDepthMode = (folderPath: string, depthMode: FolderSpaceDepthMode) =>
+    options.setFolderDepthMode?.(folderPath, depthMode);
+  view.getDefaultContentMode = () => normalizeContentMode(options.getDefaultContentMode?.());
+  view.getFolderContentMode = (folderPath: string) =>
+    normalizeOptionalContentMode(options.getFolderContentMode?.(folderPath));
+  view.setFolderContentMode = (folderPath: string, contentMode: FolderSpaceContentMode) =>
+    options.setFolderContentMode?.(folderPath, contentMode);
   view.setFolderIcon = (folderPath: string, icon: string) => options.setFolderIcon?.(folderPath, icon);
+  view.openSearchInWindow = options.openSearchInWindow;
   view.getViewType = () => FOLDER_SPACES_VIEW_TYPE;
   view.getIcon = () => getFolderSpaceIcon(options, view.folderPath);
 
   view.getDisplayText = () => {
-    const rootFolder = getRootFolder(view);
-    if (rootFolder) {
-      return rootFolder.name;
-    }
-
-    return view.folderPath ? lastPathSegment(view.folderPath) : originalGetDisplayText();
+    return getFolderSpaceTitle(view.app, view.folderPath);
   };
 
   view.getSortedFolderItems = (folder: TFolder) => {
     const items = originalGetSortedFolderItems(folder);
+    const rootFolder = getRootFolder(view);
+    const depthLimit = getFolderDepthLimit(view.depthMode);
+
     if (view.viewMode !== "flat") {
-      return items;
+      if (
+        rootFolder &&
+        folder !== rootFolder &&
+        depthLimit !== null &&
+        getFolderDepthFromRoot(rootFolder, folder) >= depthLimit
+      ) {
+        return [];
+      }
+      return filterByContentMode(view, items);
     }
 
-    const rootFolder = getRootFolder(view);
     if (!rootFolder || folder === rootFolder) {
       return items;
     }
@@ -492,20 +603,57 @@ function patchExplorerView(
     // In Flat mode every folder is rendered at the root level. Its native
     // children therefore contain only the files directly inside that folder;
     // descendant folders are rendered as their own root-level groups.
-    return items.filter((item) => item.file instanceof TFile);
+    return filterByContentMode(
+      view,
+      items.filter((item) => item.file instanceof TFile)
+    );
   };
 
   view.getState = () => ({
     ...originalGetState(),
     folderPath: view.folderPath,
-    viewMode: view.viewMode
+    viewMode: view.viewMode,
+    depthMode: view.depthMode,
+    contentMode: view.contentMode,
+    panelId: view.panelId,
+    parentPanelId: view.parentPanelId,
+    followParent: view.followParent
   });
 
-  view.setState = async (state: unknown, result: ViewStateResult) => {
+  view.setState = async (
+    state: unknown,
+    result: ViewStateResult,
+    changeOptions?: FolderPathChangeOptions
+  ) => {
     try {
       const nextState = normalizeState(state);
+      const preservedViewSettings = changeOptions?.preserveViewSettings
+        ? {
+            viewMode: view.viewMode,
+            depthMode: view.depthMode,
+            contentMode: view.contentMode
+          }
+        : null;
       view.folderPath = nextState.folderPath;
-      view.viewMode = resolveFolderViewMode(view, nextState.folderPath, nextState.viewMode);
+      view.viewMode = preservedViewSettings?.viewMode ??
+        resolveFolderViewMode(view, nextState.folderPath, nextState.viewMode);
+      view.depthMode = preservedViewSettings?.depthMode ??
+        resolveFolderDepthMode(view, nextState.folderPath, nextState.depthMode);
+      view.contentMode = preservedViewSettings?.contentMode ??
+        resolveFolderContentMode(view, nextState.folderPath, nextState.contentMode);
+      if (view.contentMode === "files") {
+        view.viewMode = "flat";
+      }
+      const panelId = normalizePanelId(nextState.panelId);
+      if (typeof panelId === "string") {
+        view.panelId = panelId;
+      }
+      const parentPanelId = normalizePanelId(nextState.parentPanelId);
+      if (parentPanelId !== undefined) {
+        view.parentPanelId = parentPanelId;
+      }
+      view.followParent =
+        typeof nextState.followParent === "boolean" ? nextState.followParent : true;
       view.icon = getFolderSpaceIcon(options, view.folderPath);
       await originalSetState(nextState, result);
       // setState may be implemented by the native explorer and can overwrite
@@ -517,6 +665,7 @@ function patchExplorerView(
       refreshFolderPresentation(view, Boolean(view.folderPath));
       scheduleFlatRefresh(view);
       refreshLeafHeader(view);
+      view.onBindingChanged();
     } catch (error) {
       console.warn("[folder-spaces] Unable to set view state:", error);
       new Notice(t("rootUnavailable"));
@@ -524,6 +673,9 @@ function patchExplorerView(
   };
 
   view.load = () => {
+    // 先套用 leaf view state 中的初始 folderPath，避免原生 load() 先以 root
+    // 內容渲染、setState 延遲到達時才重建造成抖動（見 applyInitialViewState）。
+    applyInitialViewState(view);
     originalLoad();
     // The native explorer can reset this flag while it is loading.
     makeNavigable(view);
@@ -533,14 +685,16 @@ function patchExplorerView(
     registerRootContextMenuOverride(view);
     registerCreateButtonsOverride(view);
     registerFileOpenOverride(view);
+    registerFlatRenameEditorOverride(view);
     registerTreeNavigationOverride(view);
+    registerParentScopeFollowOverride(view);
     refreshFolderPresentation(view, false);
+    view.onBindingChanged();
     scheduleFlatRefresh(view);
   };
 
   view.sort = () => {
     const rootFolder = getRootFolder(view);
-    refreshFolderPresentation(view, false);
 
     if (!rootFolder) {
       restoreFlatItemParents(view);
@@ -556,10 +710,16 @@ function patchExplorerView(
     if (view.containerEl.isShown()) {
       view._sortQueued = false;
       sortNestedFolders(view);
-      const items = view.viewMode === "flat"
+      const useFlatRendering = view.viewMode === "flat" || view.contentMode === "files";
+      const items = useFlatRendering
         ? getFlatItems(view, rootFolder)
         : view.getSortedFolderItems(rootFolder);
       renderChildren(view, items);
+      const depthLimit = getFolderDepthLimit(view.depthMode);
+      if (view.viewMode === "tree" && view.contentMode !== "files" && depthLimit !== null) {
+        collapseFoldersBeyondDepth(view, rootFolder, depthLimit);
+        view.tree.infinityScroll.compute();
+      }
       if (view.autoRevealFile) {
         view.revealActiveFile();
       }
@@ -604,6 +764,7 @@ function patchExplorerView(
   };
 
   view.onFileContextMenu = (event: MouseEvent, file: TAbstractFile) => {
+    options.onContextMenuOpen?.(view.leaf);
     const inPopout = isPopoutWindow(getWindowOfLeaf(view.leaf));
     const handler = (menu: Menu, menuFile: TAbstractFile) => {
       if (menuFile instanceof TFolder && view.viewMode === "flat" && isInsideRoot(view, menuFile.path)) {
@@ -633,13 +794,22 @@ function patchExplorerView(
       return;
     }
 
-    void originalAfterCreate?.(file, newLeaf);
+    const result = originalAfterCreate?.(file, newLeaf);
+    if (file instanceof TFolder && view.viewMode === "flat") {
+      // Flat mode 將資料夾 label 顯示為相對路徑；原生 inline rename
+      // 可能因此把父階層路徑帶入新資料夾的初始值。等待原生 DOM 建立
+      // 完成後，只保留新資料夾名稱，讓使用者可直接輸入並建立。
+      void Promise.resolve(result)
+        .then(() => clearFlatFolderCreatePath(view, file))
+        .catch(() => {});
+    }
   };
 
   view.onRename = (file: TAbstractFile, oldPath: string) => {
     originalOnRename(file, oldPath);
 
-    if (view.viewMode === "flat" && (isInsideRoot(view, oldPath) || isInsideRoot(view, file.path))) {
+    const usesFlatRendering = view.viewMode === "flat" || view.contentMode === "files";
+    if (usesFlatRendering && (isInsideRoot(view, oldPath) || isInsideRoot(view, file.path))) {
       scheduleFlatRefresh(view);
     }
 
@@ -662,12 +832,12 @@ function patchExplorerView(
   view.onDelete = (file: TAbstractFile) => {
     originalOnDelete(file);
 
-    if (!view.folderPath) {
+    if (view.folderPath === null) {
       return;
     }
 
     if (file.path === view.folderPath || view.folderPath.startsWith(`${file.path}/`)) {
-      view.folderPath = null;
+      view.folderPath = "";
       refreshFolderPresentation(view, true);
     }
   };
@@ -701,21 +871,25 @@ function initializeEmptyState(view: PatchedExplorerView): void {
 
   const folderPathActions = folderPath.createDiv({ cls: "folder-spaces-folder-path-actions nav-buttons" });
 
-  const viewModeButton = folderPathActions.createDiv({
-    cls: "clickable-icon folder-spaces-action-btn",
+  const followParentButton = folderPathActions.createDiv({
+    cls: "clickable-icon folder-spaces-action-btn folder-spaces-follow-btn",
     attr: {
-      "aria-label": t("actionToggleFolderView"),
-      "data-tooltip": t("actionToggleFolderView"),
-      "aria-pressed": "false"
+      "aria-label": t("actionSyncFollowParent"),
+      "data-tooltip": t("actionSyncFollowParent"),
+      "aria-pressed": "true"
     }
   });
-  setIcon(viewModeButton, "lucide-list-tree");
+  setIcon(followParentButton, "lucide-link");
+  followParentButton.toggle(false);
 
-  const moreButton = folderPathActions.createDiv({
+  const viewSettingsButton = folderPathActions.createDiv({
     cls: "clickable-icon folder-spaces-action-btn",
-    attr: { "aria-label": t("actionFolderMenu") }
+    attr: {
+      "aria-label": t("actionViewSettings"),
+      "data-tooltip": t("actionViewSettings")
+    }
   });
-  setIcon(moreButton, "lucide-more-vertical");
+  setIcon(viewSettingsButton, "lucide-sliders-horizontal");
 
   view.navFileContainerEl.before(folderPath);
 
@@ -736,29 +910,47 @@ function initializeEmptyState(view: PatchedExplorerView): void {
     }
 
     event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
     const rootFolder = getRootFolder(view);
     if (rootFolder) {
-      openRootBlankAreaContextMenu(view, event, rootFolder);
+      openRootFolderContextMenu(view, event, rootFolder);
     }
   });
 
-  // View Mode Button -> Toggle Tree/Flat for the current root folder
-  view.registerDomEvent(viewModeButton, "click", (event: MouseEvent) => {
+  // Follow Parent Button -> Toggle syncing this panel's folder focus with the
+  // bound parent panel. Only visible when the panel is bound to a parent.
+  view.registerDomEvent(followParentButton, "click", (event: MouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
-    setViewMode(view, view.viewMode === "flat" ? "tree" : "flat");
+    if (!view.parentPanelId) {
+      return;
+    }
+
+    view.followParent = !view.followParent;
+    updateFollowParentButton(view);
+    view.onBindingChanged();
+    view.bindingManager?.getParentOf(view.panelId)?.onBindingChanged?.();
+    void view.app.workspace.requestSaveLayout();
+  });
+
+  // View Settings Button -> Open display options dropdown
+  view.registerDomEvent(viewSettingsButton, "click", (event: MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    showViewSettingsDropdown(view, viewSettingsButton);
   });
 
   // Folder Icon Button -> Set a custom icon for the current root folder
   view.registerDomEvent(folderIconButton, "click", (event: MouseEvent) => {
     event.stopPropagation();
-    if (!view.folderPath) {
+    if (view.folderPath === null) {
       return;
     }
 
     new IconPickerModal(view.app, view.getIcon(), async (icon) => {
       const folderPath = view.folderPath;
-      if (!folderPath) {
+      if (folderPath === null) {
         return;
       }
       await view.setFolderIcon(folderPath, icon);
@@ -768,26 +960,21 @@ function initializeEmptyState(view: PatchedExplorerView): void {
     }).open();
   });
 
-  // More Vertical Button -> Folder Context Menu
-  view.registerDomEvent(moreButton, "click", (event: MouseEvent) => {
-    event.stopPropagation();
-    const rootFolder = getRootFolder(view);
-    if (rootFolder) {
-      openRootBlankAreaContextMenu(view, event, rootFolder);
-    }
-  });
-
-  view.folderPath = null;
+  view.folderPath = "";
   view.viewMode = "tree";
+  view.depthMode = "all-level";
+  view.contentMode = "all";
   view.flatItemParents = new Map();
   view.flatItemLabels = new Map();
+  view.flatRenameEditors = new WeakSet();
   view.rootEmptyStateEl = emptyState;
   view.rootEmptyTitleEl = title;
   view.rootEmptyDescriptionEl = description;
   view.folderPathEl = folderPath;
   view.folderPathTextEl = folderPathText;
-  view.viewModeButtonEl = viewModeButton;
+  view.viewSettingsButtonEl = viewSettingsButton;
   view.folderIconButtonEl = folderIconButton;
+  view.followParentButtonEl = followParentButton;
 }
 
 function registerCreateButtonsOverride(view: PatchedExplorerView): void {
@@ -819,18 +1006,22 @@ function registerCreateButtonsOverride(view: PatchedExplorerView): void {
 }
 
 function setViewMode(view: PatchedExplorerView, mode: FolderSpaceViewMode): void {
-  if (view.viewMode === mode) {
+  // A files-only presentation has no folder groups to render as a tree.
+  // Keep the persisted mode and the rendered mode consistent with that
+  // constraint even if an older layout stored the incompatible combination.
+  const effectiveMode = view.contentMode === "files" && mode === "tree" ? "flat" : mode;
+  if (view.viewMode === effectiveMode) {
     return;
   }
 
   restoreFlatItemParents(view);
   restoreFlatItemLabels(view);
-  view.viewMode = mode;
+  view.viewMode = effectiveMode;
   if (view.folderPath) {
-    void view.setFolderViewMode(view.folderPath, mode);
+    void view.setFolderViewMode(view.folderPath, effectiveMode);
   }
-  updateViewModeButtons(view);
-  if (mode === "flat") {
+  updateViewSettingsButton(view);
+  if (effectiveMode === "flat") {
     scheduleFlatRefresh(view, "immediate");
   } else {
     view.requestSort();
@@ -838,30 +1029,80 @@ function setViewMode(view: PatchedExplorerView, mode: FolderSpaceViewMode): void
   void view.app.workspace.requestSaveLayout();
 }
 
-function setFolderPath(view: PatchedExplorerView, folderPath: string): void {
+function setDepthMode(view: PatchedExplorerView, mode: FolderSpaceDepthMode): void {
+  const changed = view.depthMode !== mode;
+  view.depthMode = mode;
+  if (changed && view.folderPath) {
+    void view.setFolderDepthMode(view.folderPath, mode);
+  }
+  updateViewSettingsButton(view);
+  if (view.viewMode === "flat") {
+    scheduleFlatRefresh(view, "immediate");
+  } else {
+    view.requestSort();
+    if (view.contentMode !== "files") {
+      applyDepthMode(view);
+    }
+  }
+  if (changed) {
+    void view.app.workspace.requestSaveLayout();
+  }
+}
+
+function setContentMode(view: PatchedExplorerView, mode: FolderSpaceContentMode): void {
+  if (mode === "files" && view.viewMode !== "flat") {
+    setViewMode(view, "flat");
+  }
+
+  if (view.contentMode === mode) {
+    return;
+  }
+
+  const wasFlatRendering = view.viewMode === "flat" || view.contentMode === "files";
+  view.contentMode = mode;
+  const isFlatRendering = view.viewMode === "flat" || view.contentMode === "files";
+  if (wasFlatRendering && !isFlatRendering) {
+    restoreFlatItemParents(view);
+    restoreFlatItemLabels(view);
+  }
+  if (view.folderPath) {
+    void view.setFolderContentMode(view.folderPath, mode);
+  }
+  updateViewSettingsButton(view);
+  view.requestSort();
+  void view.app.workspace.requestSaveLayout();
+}
+
+function setFolderPath(
+  view: PatchedExplorerView,
+  folderPath: string | null,
+  changeOptions?: FolderPathChangeOptions
+): void {
   const state = { ...view.getState(), folderPath } as Record<string, unknown>;
-  delete state.viewMode;
-  void view.setState(state, { history: false });
+  if (!changeOptions?.preserveViewSettings) {
+    delete state.viewMode;
+  }
+  void view.setState(state, { history: false }, changeOptions).then(() => {
+    // A user-initiated root change moves the parent panel's folder focus, so
+    // the bound child follows (when its toggle is ON). Reloads restore state
+    // directly and therefore never clobber a child's deeper scope.
+    view.bindingManager?.propagateFrom(view.panelId);
+    view.bindingManager?.getParentOf(view.panelId)?.onBindingChanged?.();
+  });
 }
 
 function getFolderSpaceIcon(options: FolderSpaceViewOptions, folderPath: string | null): string {
   return options.getFolderIcon?.(folderPath) ?? options.getIcon();
 }
 
-function updateViewModeButtons(view: PatchedExplorerView): void {
-  const button = view.viewModeButtonEl;
+function updateViewSettingsButton(view: PatchedExplorerView): void {
+  const button = view.viewSettingsButtonEl;
   if (!button) {
     return;
   }
 
-  const flatActive = view.viewMode === "flat";
-  button.toggleClass("is-active", flatActive);
-  button.setAttr("aria-pressed", String(flatActive));
-  const nextModeLabel = flatActive ? t("actionTreeView") : t("actionFlatView");
-  button.setAttr("aria-label", nextModeLabel);
-  button.setAttr("data-tooltip", nextModeLabel);
   button.empty();
-  setIcon(button, flatActive ? "lucide-list" : "lucide-list-tree");
+  setIcon(button, "lucide-sliders-horizontal");
 }
 
 function resolveFolderViewMode(
@@ -869,11 +1110,59 @@ function resolveFolderViewMode(
   folderPath: string | null,
   stateViewMode?: FolderSpaceViewMode
 ): FolderSpaceViewMode {
-  if (!folderPath) {
+  if (folderPath === null) {
     return normalizeViewMode(stateViewMode ?? view.getDefaultViewMode());
   }
 
   return view.getFolderViewMode(folderPath) ?? normalizeViewMode(stateViewMode ?? view.getDefaultViewMode());
+}
+
+function resolveFolderDepthMode(
+  view: PatchedExplorerView,
+  folderPath: string | null,
+  stateDepthMode?: FolderSpaceDepthMode
+): FolderSpaceDepthMode {
+  if (folderPath === null) {
+    return normalizeDepthMode(stateDepthMode ?? view.getDefaultDepthMode());
+  }
+
+  return view.getFolderDepthMode(folderPath) ?? normalizeDepthMode(stateDepthMode ?? view.getDefaultDepthMode());
+}
+
+function resolveFolderContentMode(
+  view: PatchedExplorerView,
+  folderPath: string | null,
+  stateContentMode?: FolderSpaceContentMode
+): FolderSpaceContentMode {
+  if (folderPath === null) {
+    return normalizeContentMode(stateContentMode ?? view.getDefaultContentMode());
+  }
+
+  return (
+    view.getFolderContentMode(folderPath) ?? normalizeContentMode(stateContentMode ?? view.getDefaultContentMode())
+  );
+}
+
+/**
+ * 建立 Folder Space view 時，原生 File Explorer 的 load() 會先以 root 內容
+ * 渲染一次，而 setState（設定 folderPath）通常延遲數百毫秒才到達，導致子目錄
+ * space 初次出現時整棵樹由 root 抖動成 scoped 內容（root space 因兩次內容相同
+ * 看不出來）。此處在 load 之前直接從 leaf 的 view state 讀取初始 folderPath 與
+ * 檢視模式，讓第一次渲染即為正確範圍，消除抖動。
+ */
+function applyInitialViewState(view: PatchedExplorerView): void {
+  const viewState = (view.leaf as WorkspaceLeaf | undefined)?.getViewState?.();
+  if (!viewState) {
+    return;
+  }
+  const nextState = normalizeState(viewState.state);
+  view.folderPath = nextState.folderPath;
+  view.viewMode = resolveFolderViewMode(view, view.folderPath, nextState.viewMode);
+  view.depthMode = resolveFolderDepthMode(view, view.folderPath, nextState.depthMode);
+  view.contentMode = resolveFolderContentMode(view, view.folderPath, nextState.contentMode);
+  if (view.contentMode === "files") {
+    view.viewMode = "flat";
+  }
 }
 
 function normalizeViewMode(mode: unknown): FolderSpaceViewMode {
@@ -883,6 +1172,356 @@ function normalizeViewMode(mode: unknown): FolderSpaceViewMode {
 function normalizeOptionalViewMode(mode: unknown): FolderSpaceViewMode | null {
   return mode === "tree" || mode === "flat" ? mode : null;
 }
+
+function normalizeDepthMode(mode: unknown): FolderSpaceDepthMode {
+  return mode === "one-level" || mode === "two-level" ? mode : "all-level";
+}
+
+function normalizeOptionalDepthMode(mode: unknown): FolderSpaceDepthMode | null {
+  return mode === "one-level" || mode === "two-level" || mode === "all-level" ? mode : null;
+}
+
+function getFolderDepthLimit(mode: FolderSpaceDepthMode): number | null {
+  if (mode === "one-level") {
+    return 1;
+  }
+  if (mode === "two-level") {
+    return 2;
+  }
+  return null;
+}
+
+function getFolderDepthFromRoot(rootFolder: TFolder, folder: TFolder): number {
+  if (rootFolder === folder) {
+    return 0;
+  }
+
+  const prefix = rootFolder.path ? `${rootFolder.path}/` : "";
+  const relativePath = folder.path.startsWith(prefix) ? folder.path.slice(prefix.length) : folder.path;
+  return relativePath ? relativePath.split("/").length : 0;
+}
+
+function normalizeContentMode(mode: unknown): FolderSpaceContentMode {
+  if (mode === "folders" || mode === "files") {
+    return mode;
+  }
+  return "all";
+}
+
+function normalizeOptionalContentMode(mode: unknown): FolderSpaceContentMode | null {
+  return mode === "folders" || mode === "files" || mode === "all" ? mode : null;
+}
+
+function filterByContentMode(view: PatchedExplorerView, items: InternalTreeItem[]): InternalTreeItem[] {
+  if (view.contentMode === "all") {
+    return items;
+  }
+  return items.filter((item) => {
+    if (view.contentMode === "folders") {
+      return item.file instanceof TFolder;
+    }
+    return item.file instanceof TFile;
+  });
+}
+
+function applyDepthMode(view: PatchedExplorerView): void {
+  const rootFolder = getRootFolder(view);
+  if (!rootFolder) {
+    return;
+  }
+
+  const depthLimit = getFolderDepthLimit(view.depthMode);
+  if (depthLimit !== null) {
+    collapseFoldersBeyondDepth(view, rootFolder, depthLimit);
+  } else {
+    expandAllFolders(view, rootFolder);
+  }
+  view.tree.infinityScroll.compute();
+}
+
+/**
+ * Collapses folders at or beyond the selected depth limit while expanding
+ * shallower folders.
+ */
+function collapseFoldersBeyondDepth(
+  view: PatchedExplorerView,
+  folder: TFolder,
+  maxDepth: number,
+  depth = 1
+): void {
+  for (const child of folder.children) {
+    if (!(child instanceof TFolder)) {
+      continue;
+    }
+    const item = view.fileItems[child.path];
+    if (item) {
+      if (depth >= maxDepth && !item.collapsed) {
+        void item.setCollapsed?.(true, false);
+      } else if (depth < maxDepth && item.collapsed) {
+        void item.setCollapsed?.(false, false);
+      }
+    }
+    collapseFoldersBeyondDepth(view, child, maxDepth, depth + 1);
+  }
+}
+
+/**
+ * Expands every folder inside the Folder Space so all levels are visible
+ * ("Depth: All levels").
+ */
+function expandAllFolders(view: PatchedExplorerView, folder: TFolder): void {
+  for (const child of folder.children) {
+    if (!(child instanceof TFolder)) {
+      continue;
+    }
+    const item = view.fileItems[child.path];
+    if (item && item.collapsed) {
+      void item.setCollapsed?.(false, false);
+    }
+    expandAllFolders(view, child);
+  }
+}
+
+function showViewSettingsDropdown(view: PatchedExplorerView, anchorEl: HTMLElement): void {
+  const menu = new Menu();
+
+  menu.addItem((item) => {
+    item.setTitle("Style: Tree view");
+    item.setChecked(view.viewMode === "tree");
+    item.onClick(() => setViewMode(view, "tree"));
+  });
+
+  menu.addItem((item) => {
+    item.setTitle("Style: Flat view");
+    item.setChecked(view.viewMode === "flat");
+    item.onClick(() => setViewMode(view, "flat"));
+  });
+
+  menu.addSeparator();
+
+  menu.addItem((item) => {
+    item.setTitle("Depth: 1 level");
+    item.setChecked(view.depthMode === "one-level");
+    item.onClick(() => setDepthMode(view, "one-level"));
+  });
+
+  menu.addItem((item) => {
+    item.setTitle("Depth: 2 levels");
+    item.setChecked(view.depthMode === "two-level");
+    item.onClick(() => setDepthMode(view, "two-level"));
+  });
+
+  menu.addItem((item) => {
+    item.setTitle("Depth: All levels");
+    item.setChecked(view.depthMode === "all-level");
+    item.onClick(() => setDepthMode(view, "all-level"));
+  });
+
+  menu.addSeparator();
+
+  menu.addItem((item) => {
+    item.setTitle("Show: Folders");
+    item.setChecked(view.contentMode === "folders");
+    item.onClick(() => setContentMode(view, "folders"));
+  });
+
+  menu.addItem((item) => {
+    item.setTitle("Show: Files");
+    item.setChecked(view.contentMode === "files");
+    item.onClick(() => setContentMode(view, "files"));
+  });
+
+  menu.addItem((item) => {
+    item.setTitle("Show: All");
+    item.setChecked(view.contentMode === "all");
+    item.onClick(() => setContentMode(view, "all"));
+  });
+
+  const menuDocument = anchorEl.ownerDocument;
+  const menuWindow = menuDocument.defaultView;
+  if (!menuWindow) {
+    return;
+  }
+
+  // Obsidian's menu dismiss handler observes the click that opened the menu.
+  // Queue the actual show call so that handler cannot immediately close it.
+  menuWindow.setTimeout(() => {
+    if (!anchorEl.isConnected) {
+      return;
+    }
+
+    const rect = anchorEl.getBoundingClientRect();
+    menu.showAtPosition({ x: rect.left, y: rect.bottom + 4 }, menuDocument);
+  }, 0);
+}
+
+/**
+ * Resolves a persisted panel identity value. `null`/missing values yield
+ * `undefined` (keep the current value); valid non-empty strings are returned
+ * as-is.
+ */
+function normalizePanelId(value: unknown): string | null | undefined {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+export function refreshChildBindingUI(view: PatchedExplorerView): void {
+  const button = view.followParentButtonEl;
+  if (!button) {
+    return;
+  }
+
+  button.toggle(Boolean(view.parentPanelId));
+  if (!view.parentPanelId) {
+    return;
+  }
+
+  updateFollowParentButton(view);
+}
+
+function refreshSyncFocusMarker(view: PatchedExplorerView): void {
+  view.syncFocusDecorationObserver?.disconnect();
+  view.syncFocusDecorationObserver = undefined;
+  view.syncFocusItem?.selfEl.removeClass("folder-spaces-sync-focus");
+  view.syncFocusItem?.selfEl.removeClass("folder-spaces-sync-has-tail");
+  view.syncFocusIconEl?.remove();
+  view.syncFocusHeaderEl?.removeClass("folder-spaces-sync-focus");
+  view.syncFocusItem = undefined;
+  view.syncFocusIconEl = undefined;
+  view.syncFocusHeaderEl = undefined;
+
+  const manager = view.bindingManager;
+  if (!manager) {
+    return;
+  }
+
+  const child = manager.getChildOf(view.panelId);
+  if (!child || !child.followParent) {
+    return;
+  }
+
+  // The child's current scope is the source of truth. The child can change
+  // its folder from the path header, independently of the parent tree, and
+  // the parent must follow that latest path for the marker to stay accurate.
+  const targetPath = child.getFolderPath();
+  const rootFolder = getRootFolder(view);
+  if (!rootFolder || targetPath === null || !isInsideRoot(view, targetPath)) {
+    return;
+  }
+
+  if (targetPath === view.folderPath) {
+    view.folderPathEl.addClass("folder-spaces-sync-focus");
+    view.syncFocusHeaderEl = view.folderPathEl;
+    return;
+  }
+
+  const targetItem = findSyncFocusItem(view, rootFolder, targetPath);
+  if (!targetItem) {
+    return;
+  }
+
+  targetItem.selfEl.addClass("folder-spaces-sync-focus");
+  const iconEl = targetItem.selfEl.createDiv({
+    cls: "folder-spaces-sync-source-icon",
+    attr: {
+      "aria-label": t("actionSyncSourceFolder"),
+      "data-tooltip": t("actionSyncSourceFolder")
+    }
+  });
+  setIcon(iconEl, "link-2");
+  view.syncFocusItem = targetItem;
+  view.syncFocusIconEl = iconEl;
+  view.syncFocusDecorationObserver = new MutationObserver((mutations) => {
+    // Ignore the class mutation caused by updateSyncFocusSpacing itself;
+    // otherwise the observer can continuously retrigger during startup.
+    if (mutations.every((mutation) => mutation.type === "attributes" && mutation.attributeName === "class")) {
+      return;
+    }
+    updateSyncFocusSpacing(view);
+  });
+  view.syncFocusDecorationObserver.observe(targetItem.selfEl, {
+    attributes: true,
+    childList: true,
+    subtree: true
+  });
+  updateSyncFocusSpacing(view);
+}
+
+function updateSyncFocusSpacing(view: PatchedExplorerView): void {
+  const item = view.syncFocusItem;
+  const icon = view.syncFocusIconEl;
+  if (!item || !icon) {
+    return;
+  }
+
+  const children = Array.from(item.selfEl.children);
+  const iconIndex = children.indexOf(icon);
+  const hasTrailingElement = iconIndex >= 0 && children.slice(iconIndex + 1).length > 0;
+  const afterStyle = getComputedStyle(item.selfEl, "::after");
+  const afterContent = afterStyle.content;
+  const hasTrailingPseudo = Boolean(
+    afterContent &&
+      afterContent !== "none" &&
+      afterContent !== "normal" &&
+      afterContent !== "\"\"" &&
+      afterStyle.display !== "none" &&
+      afterStyle.visibility !== "hidden" &&
+      afterStyle.opacity !== "0"
+  );
+
+  item.selfEl.toggleClass(
+    "folder-spaces-sync-has-tail",
+    hasTrailingElement || hasTrailingPseudo
+  );
+}
+
+function findSyncFocusItem(
+  view: PatchedExplorerView,
+  rootFolder: TFolder,
+  targetPath: string
+): InternalTreeItem | null {
+  let file = view.app.vault.getAbstractFileByPath(targetPath);
+  if (file instanceof TFile) {
+    file = file.parent;
+  }
+
+  while (file instanceof TFolder && file !== rootFolder) {
+    if (!isInsideRoot(view, file.path)) {
+      return null;
+    }
+
+    const depthLimit = getFolderDepthLimit(view.depthMode);
+    const depth = getFolderDepthFromRoot(rootFolder, file);
+    if ((depthLimit === null || depth <= depthLimit) && view.contentMode !== "files") {
+      const item = view.fileItems[file.path];
+      if (item) {
+        return item;
+      }
+    }
+
+    file = file.parent;
+  }
+
+  return null;
+}
+
+function updateFollowParentButton(view: PatchedExplorerView): void {
+  const button = view.followParentButtonEl;
+  if (!button || !view.parentPanelId) {
+    return;
+  }
+
+  const label = t("actionSyncFollowParent");
+  button.toggleClass("is-active", view.followParent);
+  button.setAttr("aria-pressed", String(view.followParent));
+  button.setAttr("aria-label", label);
+  button.setAttr("data-tooltip", label);
+  button.empty();
+  setIcon(button, view.followParent ? "lucide-link" : "lucide-unlink");
+}
+
 
 async function createFolderSpaceFile(
   view: PatchedExplorerView,
@@ -901,9 +1540,8 @@ async function createFolderSpaceFile(
   const focusedCandidate = toFolderSpaceCreationCandidate(view.tree.focusedItem?.file ?? null);
   const activeCandidate = toFolderSpaceCreationCandidate(view.app.workspace.getActiveFile());
   const targetPath = chooseFolderSpaceCreationTarget(view.folderPath, focusedCandidate, activeCandidate);
-  const targetFolder = targetPath
-    ? view.app.vault.getAbstractFileByPath(targetPath)
-    : null;
+  const targetFolder =
+    targetPath === "" ? view.app.vault.getRoot() : targetPath ? view.app.vault.getAbstractFileByPath(targetPath) : null;
 
   if (!(targetFolder instanceof TFolder)) {
     new Notice(t("rootUnavailable"));
@@ -931,6 +1569,93 @@ function toFolderSpaceCreationCandidate(file: TAbstractFile | null): FolderSpace
   return null;
 }
 
+function clearFlatFolderCreatePath(view: PatchedExplorerView, folder: TFolder): void {
+  clearFlatItemInlineEditorPath(view, folder);
+}
+
+function clearFlatItemInlineEditorPath(
+  view: PatchedExplorerView,
+  file: TAbstractFile,
+  preferredEditor?: HTMLElement
+): void {
+  let attempts = 0;
+  const apply = () => {
+    const isFlatRendering = view.viewMode === "flat" || view.contentMode === "files";
+    if (!isFlatRendering) {
+      return;
+    }
+
+    const item = view.fileItems[file.path];
+    const labelEl = item ? getItemLabelElement(item) : null;
+    const editor = preferredEditor?.isConnected ? preferredEditor :
+      (labelEl?.matches("input,[contenteditable=\"true\"]") ? labelEl :
+        labelEl?.querySelector<HTMLElement>("input,[contenteditable=\"true\"]")) ??
+      Array.from(view.navFileContainerEl.querySelectorAll<HTMLElement>("input,[contenteditable=\"true\"]")).find(
+        (candidate) => candidate.closest<HTMLElement>(".tree-item-self")?.dataset.path === file.path
+      );
+
+    if (editor) {
+      if (view.flatRenameEditors?.has(editor)) {
+        return;
+      }
+      view.flatRenameEditors?.add(editor);
+
+      if (editor.matches("input")) {
+        const input = editor as HTMLInputElement;
+        input.value = file.name;
+        if (file instanceof TFile && file.extension) {
+          const dotIndex = file.name.lastIndexOf(".");
+          if (dotIndex > 0) {
+            input.setSelectionRange(0, dotIndex);
+          } else {
+            input.select();
+          }
+        } else {
+          input.select();
+        }
+      } else {
+        editor.textContent = file.name;
+        const selection = editor.ownerDocument.getSelection();
+        if (selection) {
+          const range = editor.ownerDocument.createRange();
+          range.selectNodeContents(editor);
+          selection.removeAllRanges();
+          selection.addRange(range);
+        }
+      }
+      return;
+    }
+
+    // 原生 File Explorer 的 rename editor 可能在下一個 render tick 才出現。
+    if (attempts++ < 4) {
+      window.setTimeout(apply, 50);
+    }
+  };
+
+  window.setTimeout(apply, 0);
+}
+
+function registerFlatRenameEditorOverride(view: PatchedExplorerView): void {
+  view.registerDomEvent(
+    view.navFileContainerEl,
+    "focusin",
+    (event: FocusEvent) => {
+      const isFlatRendering = view.viewMode === "flat" || view.contentMode === "files";
+      if (!isFlatRendering || !(event.target instanceof HTMLElement)) {
+        return;
+      }
+
+      const selfEl = event.target.closest<HTMLElement>(".tree-item-self.is-being-renamed");
+      const itemPath = selfEl?.dataset.path;
+      const file = itemPath ? view.app.vault.getAbstractFileByPath(itemPath) : null;
+      if (file instanceof TAbstractFile) {
+        clearFlatItemInlineEditorPath(view, file, event.target);
+      }
+    },
+    { capture: true }
+  );
+}
+
 function registerFileOpenOverride(view: PatchedExplorerView): void {
   view.registerDomEvent(
     view.navFileContainerEl,
@@ -945,6 +1670,137 @@ function registerFileOpenOverride(view: PatchedExplorerView): void {
     { capture: true }
   );
 }
+
+/**
+ * Lets a parent panel drive its bound child's folder focus and keeps the
+ * parent's own tree from toggling at the same time. Two listeners cooperate:
+ *
+ * - A **window capture** listener (`followParentScopeOnFolderClick`) pushes a
+ *   plain left-click on a folder's name down to the bound child as its new
+ *   scope. It is registered on the window in the capture phase, which always
+ *   fires before document-level interception (e.g. the Folder Notes plugin
+ *   stops propagation on the document for clicks on a folder's name). It never
+ *   stops the event, so downstream plugins are left free to react.
+ * - A **container capture** listener (`blockParentToggleOnFolderNameClick`)
+ *   consumes the same click so the parent's own tree does not collapse/expand.
+ *   It lives on the tree container, so it only runs when no earlier
+ *   document-level interceptor already handled the click: the Folder Notes
+ *   plugin, which opens a folder note and blocks the toggle itself, is never
+ *   interfered with.
+ *
+ * Both are gated on a bound child with its "sync focus with parent panel"
+ * toggle ON. A click on the collapse chevron (`.collapse-icon`) still toggles
+ * the parent and never drives the child; modifier clicks and clicks outside
+ * this panel's tree keep their native behavior.
+ */
+function registerParentScopeFollowOverride(view: PatchedExplorerView): void {
+  const win = view.containerEl.ownerDocument.defaultView;
+  if (!win) {
+    return;
+  }
+  view.registerDomEvent(
+    win,
+    "click",
+    (event: MouseEvent) => followParentScopeOnFolderClick(view, event),
+    { capture: true }
+  );
+  view.registerDomEvent(
+    view.navFileContainerEl,
+    "click",
+    (event: MouseEvent) => blockParentToggleOnFolderNameClick(view, event),
+    { capture: true }
+  );
+}
+
+function followParentScopeOnFolderClick(view: PatchedExplorerView, event: MouseEvent): void {
+  const manager = view.bindingManager;
+  if (!manager) {
+    return;
+  }
+
+  const child = manager.getChildOf(view.panelId);
+  if (!child || !child.followParent) {
+    return;
+  }
+
+  const folderPath = resolveClickedFolderPath(view.navFileContainerEl, view.files, event);
+  if (folderPath) {
+    manager.propagateFrom(view.panelId, folderPath);
+  }
+}
+
+/**
+ * Consumes a folder-name click at the tree container so the parent's own tree
+ * does not collapse/expand while it navigates a bound child. This listener
+ * lives on the container in the capture phase: it only fires when no earlier
+ * document-level interceptor (e.g. the Folder Notes plugin) already handled
+ * the click, so it never blocks plugins that open a folder note.
+ */
+function blockParentToggleOnFolderNameClick(view: PatchedExplorerView, event: MouseEvent): void {
+  const manager = view.bindingManager;
+  if (!manager) {
+    return;
+  }
+
+  const child = manager.getChildOf(view.panelId);
+  if (!child || !child.followParent) {
+    return;
+  }
+
+  if (resolveClickedFolderPath(view.navFileContainerEl, view.files, event)) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+}
+
+/**
+ * Resolves the path of the folder a plain left-click landed on inside a file
+ * explorer tree. Shared between Folder Space panels (whose parent scope drives
+ * a bound child) and the native File Explorer (which also acts as a parent
+ * panel). Returns `null` for modifier clicks and for clicks on the collapse
+ * chevron (`.collapse-icon`), which keep their native toggle behavior and never
+ * drive a child panel.
+ *
+ * Obsidian writes the authoritative `data-path` attribute on the folder title
+ * element itself, so it is preferred over the `files` DOM map — plugins that
+ * re-parent or clone tree items (folder notes, icon packs, ...) can break the
+ * map lookup without affecting `data-path`.
+ */
+export function resolveClickedFolderPath(
+  containerEl: HTMLElement,
+  files: Map<HTMLElement, TAbstractFile> | undefined,
+  event: MouseEvent
+): string | null {
+  if (event.button !== 0 || Keymap.isModEvent(event)) {
+    return null;
+  }
+
+  const target = event.target;
+  if (!(target instanceof Element)) {
+    return null;
+  }
+
+  // A click on the collapse chevron toggles the parent's tree; it never drives
+  // a bound child panel.
+  if (target.closest(".collapse-icon")) {
+    return null;
+  }
+
+  const folderTitleEl = target.closest<HTMLElement>(".nav-folder-title");
+  if (!folderTitleEl || !containerEl.contains(folderTitleEl)) {
+    return null;
+  }
+
+  const dataPath = folderTitleEl.getAttribute("data-path");
+  if (dataPath) {
+    return dataPath;
+  }
+
+  const treeItemEl = folderTitleEl.closest<HTMLElement>(".tree-item");
+  const file = treeItemEl ? files?.get(treeItemEl) : undefined;
+  return file instanceof TFolder ? file.path : null;
+}
+
 
 
 
@@ -1039,22 +1895,20 @@ async function openFileInContentArea(
 ): Promise<void> {
   try {
     const workspace = view.app.workspace;
-    const contentRoot = getContentRoot(view);
     let leaf: WorkspaceLeaf | null = null;
 
     if (requestedPane === "window") {
       leaf = workspace.getLeaf("window");
     } else if (requestedPane === true || requestedPane === "tab") {
-      leaf = createTabInRoot(workspace, contentRoot, view.leaf);
+      leaf = workspace.getLeaf("tab");
+    } else if (requestedPane === "split") {
+      leaf = workspace.getLeaf("split");
     } else {
-      if (requestedPane === "split") {
-        const recentContentLeaf = getRecentContentLeaf(workspace, contentRoot);
-        leaf = recentContentLeaf
-          ? workspace.createLeafBySplit(recentContentLeaf)
-          : createTabInRoot(workspace, contentRoot, view.leaf);
-      } else {
-        leaf = resolveRecentSiblingLeaf(view, contentRoot) ?? createTabInRoot(workspace, contentRoot, view.leaf);
-      }
+      leaf = workspace.getLeaf(false);
+    }
+
+    if (!leaf) {
+      leaf = workspace.getLeaf("tab");
     }
 
     await leaf.openFile(file, { active: true });
@@ -1064,98 +1918,8 @@ async function openFileInContentArea(
   }
 }
 
-function getContentRoot(view: PatchedExplorerView): WorkspaceParent {
-  const workspace = view.app.workspace;
-  const viewRoot = view.leaf.getRoot() as WorkspaceParent;
-
-  if (viewRoot === workspace.leftSplit || viewRoot === workspace.rightSplit) {
-    return workspace.rootSplit;
-  }
-
-  return viewRoot;
-}
-
-function getRecentContentLeaf(
-  workspace: App["workspace"],
-  contentRoot: WorkspaceParent
-): WorkspaceLeaf | null {
-  const tracker = getPanelActivityTracker(workspace);
-  const candidates: WorkspaceLeaf[] = [];
-
-  workspace.iterateAllLeaves((leaf) => {
-    if (leaf.getRoot() === contentRoot && isReusableFileLeaf(leaf)) {
-      candidates.push(leaf);
-    }
-  });
-
-  candidates.sort((left, right) => getLeafActivityScore(right, tracker) - getLeafActivityScore(left, tracker));
-  return candidates[0] ?? null;
-}
-
-function createTabInRoot(
-  workspace: App["workspace"],
-  contentRoot: WorkspaceParent,
-  fallbackLeaf: WorkspaceLeaf
-): WorkspaceLeaf {
-  const recentLeaf = workspace.getMostRecentLeaf(contentRoot);
-  const fallbackParent = fallbackLeaf.getRoot() === contentRoot ? fallbackLeaf.parent : null;
-  const parent = recentLeaf?.parent ?? fallbackParent;
-
-  if (parent) {
-    return workspace.createLeafInParent(parent as WorkspaceSplit, -1);
-  }
-
-  return workspace.getLeaf("tab");
-}
-
-function resolveRecentSiblingLeaf(
-  view: PatchedExplorerView,
-  contentRoot: WorkspaceParent
-): WorkspaceLeaf | null {
-  const workspace = view.app.workspace;
-
-  // The tab that was active before the Folder Space gained focus. Matching
-  // Obsidian's own file explorer, a file opened from the Folder Space lands on
-  // the previously active note tab rather than on the Folder Space itself.
-  const siblings: WorkspaceLeaf[] = [];
-  workspace.iterateAllLeaves((leaf) => {
-    if (leaf.getRoot() === contentRoot && leaf !== view.leaf) {
-      siblings.push(leaf);
-    }
-  });
-
-  let previous: WorkspaceLeaf | null = null;
-  let previousActiveTime = -1;
-  for (const leaf of siblings) {
-    const activeTime = (leaf as WorkspaceLeaf & { activeTime?: number }).activeTime ?? 0;
-    if (activeTime > previousActiveTime) {
-      previousActiveTime = activeTime;
-      previous = leaf;
-    }
-  }
-
-  if (!previous) {
-    return null;
-  }
-
-  // Reuse the previously active tab when it can host a file: an unpinned note,
-  // or a blank "New tab" that Obsidian would also reuse.
-  if (isReusableFileLeaf(previous) || previous.getViewState().type === "empty") {
-    return previous;
-  }
-
-  // Otherwise (a panel, or a pinned tab) open a new tab in its tab group.
-  return previous.parent
-    ? workspace.createLeafInParent(previous.parent as WorkspaceSplit, -1)
-    : null;
-}
-
 function isPinnedLeaf(leaf: WorkspaceLeaf): boolean {
   return leaf.getViewState().pinned === true;
-}
-
-function getLeafActivityScore(leaf: WorkspaceLeaf, tracker: PanelActivityTracker): number {
-  return tracker.getLeafActivityScore(leaf);
 }
 
 function getPanelActivityTracker(workspace: App["workspace"]): PanelActivityTracker {
@@ -1172,22 +1936,6 @@ function getPanelActivityTracker(workspace: App["workspace"]): PanelActivityTrac
 
 function isFolderSpaceLeaf(leaf: WorkspaceLeaf): boolean {
   return leaf.getViewState().type === FOLDER_SPACES_VIEW_TYPE;
-}
-
-/**
- * A leaf that can safely host a file opened from a Folder Space. Only unpinned
- * navigable file views (markdown, canvas, pdf, ...) are reused as file-open
- * targets. File-associated panels that extend FileView but are not navigable
- * (backlink, outline, outgoing-link, which Obsidian renders with
- * `navigation=false`) are therefore excluded, as are Folder Space panels, the
- * global search panel, other non-file views and pinned tabs.
- */
-function isReusableFileLeaf(leaf: WorkspaceLeaf): boolean {
-  return (
-    !isPinnedLeaf(leaf) &&
-    (leaf as WorkspaceLeaf & { canNavigate?: () => boolean }).canNavigate?.() !== false &&
-    leaf.view instanceof FileView
-  );
 }
 
 function registerRootContextMenuOverride(view: PatchedExplorerView): void {
@@ -1209,7 +1957,7 @@ function registerRootContextMenuOverride(view: PatchedExplorerView): void {
       event.stopImmediatePropagation();
       view.tree.clearSelectedDoms();
       view.tree.setFocusedItem(null);
-      openRootBlankAreaContextMenu(view, event, rootFolder);
+      openRootFolderContextMenu(view, event, rootFolder);
     },
     { capture: true }
   );
@@ -1368,12 +2116,12 @@ async function openFolderSpaceSearch(view: PatchedExplorerView, folder: TFolder)
   const query = `path:"${folder.path}/" `;
   const workspace = view.app.workspace;
   const win = getWindowOfLeaf(view.leaf);
-  const existingSearchLeaf = win
-    ? workspace.getLeavesOfType("search").find((leaf) => getWindowOfLeaf(leaf) === win)
-    : null;
 
   try {
-    const leaf = existingSearchLeaf ?? createTabInRoot(workspace, getContentRoot(view), view.leaf);
+    const leaf = view.openSearchInWindow && win
+      ? await view.openSearchInWindow(win, query)
+      : workspace.getLeavesOfType("search").find((candidate) => getWindowOfLeaf(candidate) === win) ??
+        workspace.getLeaf("tab");
     await leaf.setViewState({ type: "search", state: { query } });
     await workspace.revealLeaf(leaf);
     // Obsidian's workspace drag handler only lets views that are ItemViews be
@@ -1584,6 +2332,7 @@ function startFlatFolderRename(
 
   inputEl.focus();
   inputEl.select();
+  clearFlatItemInlineEditorPath(view, folder, inputEl);
 }
 
 function startInlineRootFolderRename(view: PatchedExplorerView, rootFolder: TFolder): void {
@@ -1627,7 +2376,7 @@ function startInlineRootFolderRename(view: PatchedExplorerView, rootFolder: TFol
     }
     labelEl.removeClass("is-editing");
     labelEl.empty();
-    labelEl.setText(path);
+    renderFolderPathTitle(view, path);
   };
 
   const commit = async () => {
@@ -1683,32 +2432,51 @@ function startInlineRootFolderRename(view: PatchedExplorerView, rootFolder: TFol
   inputEl.select();
 }
 
-function openRootBlankAreaContextMenu(
+function openRootFolderContextMenu(
   view: PatchedExplorerView,
   event: MouseEvent,
   rootFolder: TFolder
 ): void {
+  event.preventDefault();
+  event.stopPropagation();
+  event.stopImmediatePropagation();
+
   const handler = (menu: Menu, file: TAbstractFile) => {
     if (file === rootFolder) {
       patchRootFolderMenu(menu, view, rootFolder);
     }
   };
 
+  const menuWindow = getWindowOfLeaf(view.leaf) ?? event.view;
+  if (!menuWindow) {
+    return;
+  }
+
   view.app.workspace.on("file-menu", handler);
 
-  const rootItem = view.fileItems[rootFolder.path];
-  if (rootItem) {
-    delete view.fileItems[rootFolder.path];
-  }
-
-  try {
-    view.onFileContextMenu(event, rootFolder);
-  } finally {
+  // The native File Explorer menu installs global dismissal listeners. If it
+  // is opened synchronously from the header's contextmenu/click event, those
+  // listeners can observe the source gesture and hide the newly-created menu.
+  // Also hide the synthetic root item while asking the native explorer to
+  // build the menu; this preserves the blank-area behavior used by the
+  // original implementation.
+  menuWindow.setTimeout(() => {
+    const rootItem = view.fileItems[rootFolder.path];
     if (rootItem) {
-      view.fileItems[rootFolder.path] = rootItem;
+      delete view.fileItems[rootFolder.path];
     }
-    view.app.workspace.off("file-menu", handler as any);
-  }
+
+    try {
+      if (view.leaf?.view === view) {
+        view.onFileContextMenu(event, rootFolder);
+      }
+    } finally {
+      if (rootItem) {
+        view.fileItems[rootFolder.path] = rootItem;
+      }
+      view.app.workspace.off("file-menu", handler);
+    }
+  }, 0);
 }
 
 function refreshFolderPresentation(view: PatchedExplorerView, saveLayout: boolean): void {
@@ -1716,11 +2484,11 @@ function refreshFolderPresentation(view: PatchedExplorerView, saveLayout: boolea
   const hasRootFolder = Boolean(rootFolder);
 
   view.navFileContainerEl.toggle(hasRootFolder);
-  view.folderPathEl.toggle(Boolean(view.folderPath));
+  view.folderPathEl.toggle(view.folderPath !== null);
   if (!view.rootRenameInputEl?.isConnected) {
     view.rootRenameInputEl = undefined;
     view.folderPathTextEl.removeClass("is-editing");
-    view.folderPathTextEl.setText(view.folderPath ? view.folderPath : "");
+    renderFolderPathTitle(view, view.folderPath ?? "");
   }
 
   view.rootEmptyStateEl.toggle(!hasRootFolder);
@@ -1728,7 +2496,7 @@ function refreshFolderPresentation(view: PatchedExplorerView, saveLayout: boolea
     view.folderPath && !hasRootFolder ? t("emptyMissingTitle") : t("emptyTitle")
   );
   view.rootEmptyDescriptionEl.setText(t("emptyDescription"));
-  updateViewModeButtons(view);
+  updateViewSettingsButton(view);
   syncFolderIconButton(view);
 
   if (saveLayout) {
@@ -1747,9 +2515,66 @@ function syncFolderIconButton(view: PatchedExplorerView): void {
   setIcon(button, view.getIcon());
 }
 
+/**
+ * Obsidian adds ItemView actions through `addAction`, which expects a
+ * `.view-actions` element inside the view header. The native File Explorer
+ * header (reused by Folder Space views) does not provide one, so Obsidian's
+ * mass `updateTabHeaders` crashes with a `.prepend` error. Insert the action
+ * into the existing nav-buttons container instead.
+ */
+function addFolderSpaceAction(
+  view: PatchedExplorerView,
+  icon: string,
+  title: string,
+  callback: (evt: MouseEvent) => unknown
+): HTMLElement | null {
+  const navButtonsEl = view.headerDom?.navButtonsEl;
+  if (!navButtonsEl) {
+    return null;
+  }
+  const actionEl = navButtonsEl.createEl("button", {
+    cls: "clickable-icon view-action",
+    attr: { "aria-label": title, "data-tooltip": title }
+  });
+  setIcon(actionEl, icon);
+  actionEl.addEventListener("click", (evt: MouseEvent) => callback(evt));
+  return actionEl;
+}
+
 function refreshLeafHeader(view: PatchedExplorerView): void {
   const leafWithHeader = view.leaf as WorkspaceLeaf & { updateHeader?: () => void };
-  leafWithHeader.updateHeader?.();
+  try {
+    leafWithHeader.updateHeader?.();
+  } catch (error) {
+    console.warn("[folder-spaces] Header update failed:", error);
+  }
+  updateFolderSpaceLeafTooltip(view.leaf, view.folderPath);
+}
+
+function renderFolderPathTitle(view: PatchedExplorerView, path: string): void {
+  const title = getFolderSpaceTitle(view.app, path);
+  view.folderPathTextEl.setText(title);
+
+  if (!path || path === "") {
+    setTooltip(view.folderPathTextEl, "/");
+  } else {
+    setTooltip(view.folderPathTextEl, path);
+  }
+}
+
+export function updateFolderSpaceLeafTooltip(
+  leaf: WorkspaceLeaf,
+  folderPath: string | null | undefined
+): void {
+  const tabHeaderEl = (leaf as WorkspaceLeaf & { tabHeaderEl?: HTMLElement }).tabHeaderEl;
+  if (!tabHeaderEl) {
+    return;
+  }
+  if (!folderPath || folderPath === "") {
+    setTooltip(tabHeaderEl, "/");
+    return;
+  }
+  setTooltip(tabHeaderEl, folderPath);
 }
 
 function sortNestedFolders(view: PatchedExplorerView): void {
@@ -1766,6 +2591,7 @@ function renderChildren(view: PatchedExplorerView, items: InternalTreeItem[]): v
   view.tree.infinityScroll.rootEl.vChildren.setChildren(items);
   view.navFileContainerEl.scrollTop = scrollTop;
   view.tree.infinityScroll.compute();
+  refreshSyncFocusMarker(view);
 }
 
 function getFlatItems(view: PatchedExplorerView, rootFolder: TFolder): InternalTreeItem[] {
@@ -1774,6 +2600,8 @@ function getFlatItems(view: PatchedExplorerView, rootFolder: TFolder): InternalT
 
   const rootItem = view.fileItems[rootFolder.path] ?? null;
   const flatItems: InternalTreeItem[] = [];
+  const showFolders = view.contentMode !== "files";
+  const showFiles = view.contentMode !== "folders";
 
   const rememberParent = (item: InternalTreeItem, parent: InternalTreeItem | null): void => {
     view.flatItemParents ??= new Map();
@@ -1781,27 +2609,40 @@ function getFlatItems(view: PatchedExplorerView, rootFolder: TFolder): InternalT
     item.parent = parent;
   };
 
-  const collectFolderGroup = (folder: TFolder, relativePath: string): void => {
+  const collectFolderGroup = (folder: TFolder, relativePath: string, depth: number = 1): void => {
     const folderItem = view.fileItems[folder.path];
-    if (folderItem) {
+    if (folderItem && showFolders) {
       rememberParent(folderItem, rootItem);
       setFlatItemLabel(view, folderItem, relativePath);
-      folderItem.collapsed = false;
-      void folderItem.setCollapsed?.(false, false);
+      syncFlatFolderCollapseState(folderItem);
       flatItems.push(folderItem);
     }
 
-    const fileParent = folderItem ?? rootItem;
-    const files = folder.children
-      .filter((file): file is TFile => file instanceof TFile)
-      .sort((left, right) =>
-        left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" })
-      );
-    for (const file of files) {
-      const fileItem = view.fileItems[file.path];
-      if (fileItem) {
-        rememberParent(fileItem, fileParent);
+    if (showFiles) {
+      // When folders are hidden, files lose their folder group and are
+      // promoted to the root level instead.
+      const fileParent = showFolders ? folderItem ?? rootItem : rootItem;
+      const files = folder.children
+        .filter((file): file is TFile => file instanceof TFile)
+        .sort((left, right) =>
+          left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" })
+        );
+      for (const file of files) {
+        const fileItem = view.fileItems[file.path];
+        if (fileItem) {
+          rememberParent(fileItem, fileParent);
+          if (!showFolders) {
+            const fileName = view.viewMode === "flat" ? file.basename : file.name;
+            setFlatItemLabel(view, fileItem, `${relativePath}/${fileName}`);
+            flatItems.push(fileItem);
+          }
+        }
       }
+    }
+
+    const depthLimit = getFolderDepthLimit(view.depthMode);
+    if (depthLimit !== null && depth >= depthLimit) {
+      return;
     }
 
     const childFolders = folder.children
@@ -1812,7 +2653,7 @@ function getFlatItems(view: PatchedExplorerView, rootFolder: TFolder): InternalT
 
     for (const child of childFolders) {
       const childRelativePath = relativePath ? `${relativePath}/${child.name}` : child.name;
-      collectFolderGroup(child, childRelativePath);
+      collectFolderGroup(child, childRelativePath, depth + 1);
     }
   };
 
@@ -1821,25 +2662,65 @@ function getFlatItems(view: PatchedExplorerView, rootFolder: TFolder): InternalT
     .sort((left, right) =>
       left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" })
     );
-  for (const folder of rootFolders) {
-    collectFolderGroup(folder, folder.name);
-  }
-
-  // Files directly under the folder space have no folder row to attach to.
-  const rootFiles = rootFolder.children
-    .filter((file): file is TFile => file instanceof TFile)
-    .sort((left, right) =>
-      left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" })
-    );
-  for (const file of rootFiles) {
-    const fileItem = view.fileItems[file.path];
-    if (fileItem) {
-      rememberParent(fileItem, rootItem);
-      flatItems.push(fileItem);
+  if (showFolders || getFolderDepthLimit(view.depthMode) !== 1) {
+    for (const folder of rootFolders) {
+      collectFolderGroup(folder, folder.name, 1);
     }
   }
 
+  if (showFiles) {
+    // Files directly under the folder space have no folder row to attach to.
+    const rootFiles = rootFolder.children
+      .filter((file): file is TFile => file instanceof TFile)
+      .sort((left, right) =>
+        left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" })
+      );
+    for (const file of rootFiles) {
+      const fileItem = view.fileItems[file.path];
+      if (fileItem) {
+        rememberParent(fileItem, rootItem);
+        if (!showFolders && view.viewMode === "flat") {
+          setFlatItemLabel(view, fileItem, file.basename);
+        }
+        flatItems.push(fileItem);
+      }
+    }
+  }
+
+  if (!showFolders) {
+    flatItems.sort((left, right) =>
+      getFlatRelativePath(view, left.file).localeCompare(
+        getFlatRelativePath(view, right.file),
+        undefined,
+        { numeric: true, sensitivity: "base" }
+      )
+    );
+  }
+
   return flatItems;
+}
+
+function getFlatRelativePath(view: PatchedExplorerView, file: TAbstractFile): string {
+  if (!view.folderPath) {
+    return file.path;
+  }
+
+  const prefix = `${view.folderPath}/`;
+  return file.path.startsWith(prefix) ? file.path.slice(prefix.length) : file.path;
+}
+
+/**
+ * Ensures a Flat-mode folder group's DOM reflects its shared collapse state —
+ * the same fold state used by Tree mode and the native File Explorer (Obsidian
+ * persists it in app-level localStorage). The native `setCollapsed` guards on
+ * equal values and would no-op when the internal flag already matches, leaving
+ * a stale DOM behind, so flip the flag first to force the DOM update while
+ * preserving the stored state.
+ */
+function syncFlatFolderCollapseState(item: InternalTreeItem): void {
+  const shouldCollapse = Boolean(item.collapsed);
+  item.collapsed = !shouldCollapse;
+  void item.setCollapsed?.(shouldCollapse, false);
 }
 
 function restoreFlatItemParents(view: PatchedExplorerView): void {
@@ -1854,32 +2735,35 @@ function restoreFlatItemParents(view: PatchedExplorerView): void {
 }
 
 function scheduleFlatRefresh(view: PatchedExplorerView, mode: "debounced" | "immediate" = "debounced"): void {
-  if (view.viewMode !== "flat") {
+  if (view._flatRefreshTimer !== undefined) {
+    window.clearTimeout(view._flatRefreshTimer);
+    view._flatRefreshTimer = undefined;
+  }
+
+  if (view.viewMode !== "flat" && view.contentMode !== "files") {
     return;
   }
 
-  const refresh = () => {
-    if (view.viewMode !== "flat") {
-      return;
-    }
+  if (mode === "immediate") {
+    view.sort();
+    return;
+  }
 
-    if (mode === "immediate") {
-      view.sort();
-    } else {
+  view._flatRefreshTimer = window.setTimeout(() => {
+    view._flatRefreshTimer = undefined;
+    if (view.viewMode === "flat" || view.contentMode === "files") {
       view.requestSort();
     }
-  };
-
-  for (const delay of [0, 50, 200, 500]) {
-    window.setTimeout(() => {
-      refresh();
-    }, delay);
-  }
+  }, 20);
 }
 
 function getFlatFolderLabel(view: PatchedExplorerView, folder: TFolder): string {
-  if (!view.folderPath || !isPathInsideFolder(folder.path, view.folderPath)) {
+  if (view.folderPath === null || !isPathInsideFolder(folder.path, view.folderPath)) {
     return folder.name;
+  }
+
+  if (view.folderPath === "") {
+    return folder.path;
   }
 
   return folder.path.slice(view.folderPath.length + 1) || folder.name;
@@ -1963,8 +2847,8 @@ function getItemLabelElement(item: InternalTreeItem): HTMLElement | null {
 }
 
 function getRootFolder(view: PatchedExplorerView): TFolder | null {
-  if (!view.folderPath) {
-    return null;
+  if (view.folderPath === null || view.folderPath === "" || view.folderPath === "/") {
+    return view.app.vault.getRoot();
   }
 
   const folder = view.app.vault.getAbstractFileByPath(view.folderPath);
@@ -1972,7 +2856,7 @@ function getRootFolder(view: PatchedExplorerView): TFolder | null {
 }
 
 function getVaultFolders(app: App): TFolder[] {
-  const folders: TFolder[] = [];
+  const folders: TFolder[] = [app.vault.getRoot()];
 
   const visit = (folder: TFolder): void => {
     for (const child of folder.children) {
@@ -1997,24 +2881,24 @@ function getRootItem(view: PatchedExplorerView): InternalTreeItem | null {
 }
 
 function isInsideRoot(view: PatchedExplorerView, path: string): boolean {
+  if (view.folderPath === "/") {
+    return true;
+  }
   return isPathInsideFolder(path, view.folderPath);
 }
 
-function lastPathSegment(path: string): string {
-  const segments = path.split("/");
-  return segments[segments.length - 1] || t("viewName");
-}
+
 
 class FolderSpaceUnsupportedView extends ItemView {
   readonly isFolderSpace = true;
-  folderPath: string | null = null;
+  folderPath: string = "";
 
   constructor(leaf: WorkspaceLeaf, private readonly options: FolderSpaceViewOptions) {
     super(leaf);
     this.icon = options.getFolderIcon?.(this.folderPath) ?? options.getIcon();
   }
 
-  getRootPath(): string | null {
+  getRootPath(): string {
     return this.folderPath;
   }
 
@@ -2032,7 +2916,7 @@ class FolderSpaceUnsupportedView extends ItemView {
   }
 
   override getDisplayText(): string {
-    return this.folderPath ? lastPathSegment(this.folderPath) : t("viewName");
+    return getFolderSpaceTitle(this.app, this.folderPath);
   }
 
   override getState(): Record<string, unknown> {

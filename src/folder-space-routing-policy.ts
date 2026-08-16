@@ -1,3 +1,39 @@
+export type FolderSpaceLocation = "left-sidebar" | "right-sidebar" | "editor" | "window";
+
+export interface FolderSpaceScope {
+  folderPath: string;
+  location: FolderSpaceLocation;
+  window: Window | null;
+}
+
+export interface FolderSpaceScopeCandidate<Leaf> extends FolderSpaceScope {
+  leaf: Leaf;
+}
+
+export function isSameFolderSpaceScope(
+  left: FolderSpaceScope,
+  right: FolderSpaceScope
+): boolean {
+  return (
+    left.folderPath === right.folderPath &&
+    left.location === right.location &&
+    left.window === right.window
+  );
+}
+
+export function findExistingFolderSpace<Leaf>(
+  candidates: readonly FolderSpaceScopeCandidate<Leaf>[],
+  target: FolderSpaceScope
+): Leaf | null {
+  let existing: Leaf | null = null;
+  for (const candidate of candidates) {
+    if (isSameFolderSpaceScope(candidate, target)) {
+      existing = candidate.leaf;
+    }
+  }
+  return existing;
+}
+
 export interface PanelCandidate<Panel, Leaf> {
   panel: Panel;
   order: number;
@@ -44,13 +80,11 @@ export interface FolderSpaceCreationCandidate {
 }
 
 export function chooseFolderSpaceCreationTarget(
-  folderPath: string | null,
+  folderPath: string | null | undefined,
   focused: FolderSpaceCreationCandidate | null,
   activeFile: FolderSpaceCreationCandidate | null
 ): string | null {
-  if (!folderPath) {
-    return null;
-  }
+  const normalizedFolderPath = folderPath ?? "";
 
   for (const candidate of [focused, activeFile]) {
     if (!candidate) {
@@ -58,14 +92,18 @@ export function chooseFolderSpaceCreationTarget(
     }
 
     const targetPath = candidate.kind === "folder" ? candidate.path : candidate.parentPath;
-    if (targetPath && isInsideFolder(folderPath, targetPath)) {
+    if (targetPath && isInsideFolder(normalizedFolderPath, targetPath)) {
       return targetPath;
     }
   }
 
-  return folderPath;
+  return normalizedFolderPath;
 }
 
 function isInsideFolder(folderPath: string, path: string): boolean {
+  if (folderPath === "") {
+    // The vault root contains every path.
+    return true;
+  }
   return path === folderPath || path.startsWith(`${folderPath}/`);
 }

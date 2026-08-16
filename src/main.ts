@@ -1,10 +1,10 @@
 import {
   Menu,
   Plugin,
+  TAbstractFile,
   TFolder,
   View,
   setIcon,
-  type App,
   type WorkspaceLeaf,
   type WorkspaceParent,
   type WorkspaceSplit
@@ -14,7 +14,6 @@ import {
   getFolderPath,
   getFolderSpaces,
   isFolderSpaceView,
-  type FolderSpaceView,
   type FolderSpacesAPI
 } from "./api.js";
 import { FileExplorerCompatibilityBridge } from "./file-explorer-compatibility.js";
@@ -24,37 +23,53 @@ import {
   FolderPickerModal,
   createFolderSpaceViewWithOptions,
   disposePanelActivityTracker,
-  makeDockable,
   makeFolderSpaceLeafProtected,
-  makeLeafUnreusable,
   makeNavigable,
-  makePopoutViewsProtected
+  makePopoutViewsProtected,
+  resolveClickedFolderPath,
+  updateFolderSpaceLeafTooltip
 } from "./folder-space-explorer.js";
+import { PanelBindingManager, generatePanelId, type PanelBindingView } from "./panel-binding.js";
+import { findExistingFolderSpace, type FolderSpaceScopeCandidate } from "./folder-space-routing-policy.js";
 import {
-  collectPopoutColumns,
-  findTrueLeftSidebar,
-  findTrueRightSidebar,
-  getTopLevelNodeInWindow,
   getWindowOfLeaf,
   isPopoutWindow,
-  pickCenterPopoutPane,
-  type PopoutColumn,
-  type PopoutPane
-} from "./popout-sidebar.js";
+  PopoutLayoutEngine
+} from "./shared/popoutLayout.js";
+import {
+  acquirePopoutLayoutEngine,
+  releasePopoutLayoutEngine,
+  type PopoutLayoutEngineWithWindow
+} from "./shared/popoutLayoutRegistry.js";
+import {
+  acquireWorkspaceInterceptor,
+  releaseWorkspaceInterceptor
+} from "./shared/workspaceInterceptor.js";
+import {
+  SHARED_API_VERSION,
+  SHARED_COMPATIBLE_FROM_VERSION,
+  SHARED_IMPLEMENTATION_REVISION
+} from "./shared/sharedVersion.js";
 import {
   DEFAULT_SETTINGS,
+  DEFAULT_VIEW_ICON,
+  getDefaultFollowParent,
   getDefaultOpenLocation,
   normalizeSettings,
   resolveViewIcon,
   resolveViewMode,
+  resolveDepthMode,
+  resolveContentMode,
   type FolderSpaceViewMode,
+  type FolderSpaceDepthMode,
+  type FolderSpaceContentMode,
   type FolderSpacesSettings
 } from "./settings.js";
 import { FolderSpacesSettingTab } from "./ui/settings-tab.js";
 
 type FolderSpaceLocation = "left-sidebar" | "right-sidebar" | "editor" | "window";
 const LEGACY_FLAT_FILE_EXPLORER_VIEW_TYPE = "folder-spaces-flat-explorer";
-const FOLDER_SPACE_INITIAL_SPLIT_RATIO = 0.34;
+const FILE_EXPLORER_VIEW_TYPE = "file-explorer";
 
 interface MenuItemWithSubmenu {
   setSubmenu(): Menu;
@@ -70,9 +85,20 @@ export default class FolderSpacesPlugin extends Plugin {
   settings: FolderSpacesSettings = DEFAULT_SETTINGS;
   api!: FolderSpacesAPI;
   private ribbonIconEl: HTMLElement | null = null;
+  private readonly panelBindingManager = new PanelBindingManager();
+  private readonly nativeExplorerBindings = new Map<WorkspaceLeaf, NativeExplorerBinding>();
+  private activeContextSourceLeaf: WorkspaceLeaf | null = null;
+  private popoutLayout!: PopoutLayoutEngineWithWindow;
 
   override async onload(): Promise<void> {
     await this.loadSettings();
+    this.popoutLayout = acquirePopoutLayoutEngine({
+      id: "folder-spaces",
+      apiVersion: SHARED_API_VERSION,
+      compatibleFrom: SHARED_COMPATIBLE_FROM_VERSION,
+      implementationRevision: SHARED_IMPLEMENTATION_REVISION,
+      create: () => new PopoutLayoutEngine(this.app)
+    });
     // Remove leaves created by the previous standalone Flat Explorer view.
     this.app.workspace.detachLeavesOfType(LEGACY_FLAT_FILE_EXPLORER_VIEW_TYPE);
 
@@ -83,7 +109,10 @@ export default class FolderSpacesPlugin extends Plugin {
       getFolderPath: (leafOrView) => getFolderPath(leafOrView),
       getFolderSpaces: () => getFolderSpaces(this.app),
       openFolderSpace: async (folderPath, location = "left-sidebar") => {
-        const folder = this.app.vault.getAbstractFileByPath(folderPath);
+        const folder =
+          folderPath === ""
+            ? this.app.vault.getRoot()
+            : this.app.vault.getAbstractFileByPath(folderPath);
         if (folder instanceof TFolder) {
           return this.openFolderSpace(folder, location);
         }
@@ -102,8 +131,24 @@ export default class FolderSpacesPlugin extends Plugin {
           setFolderViewMode: (folderPath, viewMode) => {
             void this.setFolderViewMode(folderPath, viewMode);
           },
+          getDefaultDepthMode: () => this.settings.defaultDepthMode,
+          getFolderDepthMode: (folderPath) => this.settings.folderDepthModes[folderPath] ?? null,
+          setFolderDepthMode: (folderPath, depthMode) => {
+            void this.setFolderDepthMode(folderPath, depthMode);
+          },
+          getDefaultContentMode: () => this.settings.defaultContentMode,
+          getFolderContentMode: (folderPath) => this.settings.folderContentModes[folderPath] ?? null,
+          setFolderContentMode: (folderPath, contentMode) => {
+            void this.setFolderContentMode(folderPath, contentMode);
+          },
           setFolderIcon: (folderPath, icon) => {
             void this.setFolderIcon(folderPath, icon);
+          },
+          bindingManager: this.panelBindingManager,
+          popoutLayoutEngine: this.popoutLayout,
+          openSearchInWindow: (win, query) => this.openSearchInWindow(win, query),
+          onContextMenuOpen: (sourceLeaf) => {
+            this.activeContextSourceLeaf = sourceLeaf;
           }
         })
     );
@@ -111,37 +156,45 @@ export default class FolderSpacesPlugin extends Plugin {
     this.addSettingTab(new FolderSpacesSettingTab(this.app, this));
     this.registerFolderMenu();
     this.registerOpenFolderSpaceCommand();
-    this.registerOpenFolderSpaceRibbon();
-    this.patchEnsureSideLeaf();
+    this.refreshRibbonIcon();
+    acquireWorkspaceInterceptor(this.app, {
+      id: "folder-spaces",
+      engine: this.popoutLayout,
+      isManagedWindow: (win) => isPopoutWindow(win)
+    });
     this.registerEvent(
       this.app.workspace.on("layout-change", () => {
         this.refreshFolderSpaceNavigation();
         makePopoutViewsProtected(this.app.workspace);
+        this.reconcileFolderSpaceBindings();
       })
     );
     this.registerEvent(
       this.app.workspace.on("window-open", () => {
         makePopoutViewsProtected(this.app.workspace);
+        this.reconcileFolderSpaceBindings();
       })
     );
     new FileExplorerCompatibilityBridge(this).start();
   }
 
   override onunload(): void {
-    restoreEnsureSideLeaf(this.app.workspace);
+    releaseWorkspaceInterceptor("folder-spaces");
     disposePanelActivityTracker(this.app.workspace);
+    this.panelBindingManager.clear();
     this.app.workspace.detachLeavesOfType(FOLDER_SPACES_VIEW_TYPE);
     this.app.workspace.detachLeavesOfType(LEGACY_FLAT_FILE_EXPLORER_VIEW_TYPE);
+    releasePopoutLayoutEngine("folder-spaces");
   }
 
   getFolderSpaceIcon(folderPath?: string | null): string {
-    if (folderPath) {
+    if (typeof folderPath === "string") {
       const folderIcon = this.settings.folderIcons[folderPath];
       if (folderIcon) {
         return resolveViewIcon(folderIcon);
       }
     }
-    return resolveViewIcon(this.settings.viewIcon);
+    return DEFAULT_VIEW_ICON;
   }
 
   async updateSettings(settings: FolderSpacesSettings): Promise<void> {
@@ -152,8 +205,8 @@ export default class FolderSpacesPlugin extends Plugin {
   }
 
   private async setFolderViewMode(folderPath: string, viewMode: FolderSpaceViewMode): Promise<void> {
-    const normalizedPath = folderPath.trim();
-    if (!normalizedPath) {
+    const normalizedPath = typeof folderPath === "string" ? folderPath.trim() : null;
+    if (normalizedPath === null) {
       return;
     }
 
@@ -166,9 +219,39 @@ export default class FolderSpacesPlugin extends Plugin {
     });
   }
 
+  private async setFolderDepthMode(folderPath: string, depthMode: FolderSpaceDepthMode): Promise<void> {
+    const normalizedPath = typeof folderPath === "string" ? folderPath.trim() : null;
+    if (normalizedPath === null) {
+      return;
+    }
+
+    await this.updateSettings({
+      ...this.settings,
+      folderDepthModes: {
+        ...this.settings.folderDepthModes,
+        [normalizedPath]: resolveDepthMode(depthMode)
+      }
+    });
+  }
+
+  private async setFolderContentMode(folderPath: string, contentMode: FolderSpaceContentMode): Promise<void> {
+    const normalizedPath = typeof folderPath === "string" ? folderPath.trim() : null;
+    if (normalizedPath === null) {
+      return;
+    }
+
+    await this.updateSettings({
+      ...this.settings,
+      folderContentModes: {
+        ...this.settings.folderContentModes,
+        [normalizedPath]: resolveContentMode(contentMode)
+      }
+    });
+  }
+
   private async setFolderIcon(folderPath: string, icon: string): Promise<void> {
-    const normalizedPath = folderPath.trim();
-    if (!normalizedPath) {
+    const normalizedPath = typeof folderPath === "string" ? folderPath.trim() : null;
+    if (normalizedPath === null) {
       return;
     }
 
@@ -192,10 +275,12 @@ export default class FolderSpacesPlugin extends Plugin {
 
   private registerFolderMenu(): void {
     this.registerEvent(
-      this.app.workspace.on("file-menu", (menu: Menu, file, source) => {
-        if (source !== "file-explorer-context-menu" || !(file instanceof TFolder) || file.isRoot()) {
+      this.app.workspace.on("file-menu", (menu: Menu, file, source, leaf) => {
+        if (source !== "file-explorer-context-menu" || !(file instanceof TFolder)) {
           return;
         }
+
+        const parentPanelId = this.getContextParentPanelId(leaf ?? this.activeContextSourceLeaf);
 
         menu.addItem((item) => {
           item.setSection("view").setTitle(t("menuFolderSpaces")).setIcon(this.getFolderSpaceIcon());
@@ -211,7 +296,8 @@ export default class FolderSpacesPlugin extends Plugin {
                 void this.openFolderSpace(
                   file,
                   getDefaultOpenLocation(this.settings, context.isPopout),
-                  context
+                  context,
+                  parentPanelId
                 );
               });
           });
@@ -223,7 +309,7 @@ export default class FolderSpacesPlugin extends Plugin {
               .setTitle(t("menuFolderSpacesLeftSidebar"))
               .setIcon("lucide-panel-left-open")
               .onClick(() => {
-                void this.openFolderSpace(file, "left-sidebar", context);
+                void this.openFolderSpace(file, "left-sidebar", context, parentPanelId);
               });
           });
 
@@ -232,7 +318,7 @@ export default class FolderSpacesPlugin extends Plugin {
               .setTitle(t("menuFolderSpacesRightSidebar"))
               .setIcon("lucide-panel-right-open")
               .onClick(() => {
-                void this.openFolderSpace(file, "right-sidebar", context);
+                void this.openFolderSpace(file, "right-sidebar", context, parentPanelId);
               });
           });
 
@@ -241,7 +327,7 @@ export default class FolderSpacesPlugin extends Plugin {
               .setTitle(t("menuFolderSpacesEditor"))
               .setIcon("lucide-panel-top")
               .onClick(() => {
-                void this.openFolderSpace(file, "editor", context);
+                void this.openFolderSpace(file, "editor", context, parentPanelId);
               });
           });
 
@@ -250,7 +336,7 @@ export default class FolderSpacesPlugin extends Plugin {
               .setTitle(t("menuFolderSpacesWindow"))
               .setIcon("lucide-panels-top-left")
               .onClick(() => {
-                void this.openFolderSpace(file, "window", context);
+                void this.openFolderSpace(file, "window", context, parentPanelId);
               });
           });
         });
@@ -268,6 +354,9 @@ export default class FolderSpacesPlugin extends Plugin {
   }
 
   private registerOpenFolderSpaceRibbon(): void {
+    if (this.ribbonIconEl) {
+      return;
+    }
     const ribbonIcon = this.addRibbonIcon(this.getFolderSpaceIcon(), t("commandOpenFolderSpace"), () => {
       this.promptOpenFolderSpace();
     });
@@ -276,9 +365,19 @@ export default class FolderSpacesPlugin extends Plugin {
   }
 
   private refreshRibbonIcon(): void {
+    if (this.settings.showRibbonIcon) {
+      if (!this.ribbonIconEl) {
+        this.registerOpenFolderSpaceRibbon();
+      } else {
+        this.ribbonIconEl.empty();
+        setIcon(this.ribbonIconEl, this.getFolderSpaceIcon());
+      }
+      return;
+    }
+
     if (this.ribbonIconEl) {
-      this.ribbonIconEl.empty();
-      setIcon(this.ribbonIconEl, this.getFolderSpaceIcon());
+      this.ribbonIconEl.remove();
+      this.ribbonIconEl = null;
     }
   }
 
@@ -302,59 +401,44 @@ export default class FolderSpacesPlugin extends Plugin {
     };
   }
 
-  /**
-   * All native sidebar views (tag, outline, backlink, properties, search, ...)
-   * open through `Workspace.ensureSideLeaf`, which always targets the main
-   * window's left/right sidebar. Patch it once so that when such a command is
-   * executed inside a popout window, the view opens in that popout window
-   * following the same mechanism Folder Spaces uses, instead of jumping back
-   * to the main window.
-   */
-  private patchEnsureSideLeaf(): void {
-    const workspace = this.app.workspace;
-    const original = workspace.ensureSideLeaf.bind(workspace);
-
-    const patched = (
-      viewType: string,
-      side: "left" | "right",
-      options?: { active?: boolean; split?: boolean; reveal?: boolean; state?: Record<string, unknown> }
-    ): Promise<WorkspaceLeaf> => {
-      const win = typeof activeWindow !== "undefined" ? activeWindow : window;
-      if (isPopoutWindow(win)) {
-        return openSidebarViewInPopout(workspace, viewType, side, options ?? {}, win);
-      }
-      return original(viewType, side, options);
-    };
-
-    storeEnsureSideLeafOriginal(workspace, original);
-    (workspace as unknown as { ensureSideLeaf: typeof patched }).ensureSideLeaf = patched;
-  }
-
   private async openFolderSpace(
     folder: TFolder,
     location: FolderSpaceLocation,
-    context?: FolderSpaceWindowContext
+    context?: FolderSpaceWindowContext,
+    parentPanelId?: string | null
   ): Promise<WorkspaceLeaf> {
     if (location === "window") {
-      return this.openFolderSpaceInNewWindow(folder);
+      return this.openFolderSpaceInNewWindow(folder, parentPanelId ?? null);
     }
 
     const ctx = context ?? this.getActiveWindowContext();
 
     if (ctx.isPopout && ctx.win) {
-      return this.openFolderSpaceInPopout(folder, location, ctx);
+      return this.openFolderSpaceInPopout(folder, location, ctx, parentPanelId ?? null);
     }
 
-    const leaf =
-      this.findExistingFolderSpaceLeaf(folder.path, location, ctx) ??
-      this.createFolderSpaceLeaf(location, ctx);
+    const existingLeaf = this.findExistingFolderSpaceLeaf(folder.path, location, ctx);
+    if (existingLeaf) {
+      makeNavigable(existingLeaf);
+      makeNavigable(existingLeaf.view);
+      this.applyChildBinding(parentPanelId ?? null, existingLeaf);
+      await ctx.workspace.revealLeaf(existingLeaf);
+      ctx.workspace.setActiveLeaf(existingLeaf, { focus: true });
+      await ctx.workspace.requestSaveLayout();
+      return existingLeaf;
+    }
+
+    const leaf = this.createFolderSpaceLeaf(location, ctx);
     makeNavigable(leaf);
 
     if (leaf.getViewState().type !== FOLDER_SPACES_VIEW_TYPE) {
       await leaf.setViewState({
         type: FOLDER_SPACES_VIEW_TYPE,
         active: true,
-        state: { folderPath: folder.path }
+        state: {
+          folderPath: folder.path,
+          followParent: getDefaultFollowParent(this.settings, false)
+        }
       });
     }
 
@@ -364,43 +448,62 @@ export default class FolderSpacesPlugin extends Plugin {
     await ctx.workspace.revealLeaf(leaf);
     ctx.workspace.setActiveLeaf(leaf, { focus: true });
     await ctx.workspace.requestSaveLayout();
+    // Bind before refreshing the header so a header update error can never
+    // prevent the binding from being established.
+    this.applyChildBinding(parentPanelId ?? null, leaf);
     refreshLeafHeader(leaf);
     return leaf;
   }
 
-  private async openFolderSpaceInNewWindow(folder: TFolder): Promise<WorkspaceLeaf> {
+  private async openFolderSpaceInNewWindow(
+    folder: TFolder,
+    parentPanelId?: string | null
+  ): Promise<WorkspaceLeaf> {
     const workspace = this.app.workspace;
     const existingLeaf = this.findExistingFolderSpaceLeaf(folder.path, "window");
     if (existingLeaf) {
       makeNavigable(existingLeaf);
       makeNavigable(existingLeaf.view);
+      this.applyChildBinding(parentPanelId ?? null, existingLeaf);
       await workspace.revealLeaf(existingLeaf);
       workspace.setActiveLeaf(existingLeaf, { focus: true });
       return existingLeaf;
     }
 
-    const folderSpaceLeaf = workspace.openPopoutLeaf();
-    makeNavigable(folderSpaceLeaf);
+    // 統一由 shared 開新 popout：Window Spaces 存在時會初始化 activity bars /
+    // 側欄；無 provider 時僅原生開窗 + 初始 empty tab（不建額外 empty editor）。
+    const result = await this.popoutLayout.openNewPopoutWindow();
+    if (!result) {
+      throw new Error("Unable to open a new popout window");
+    }
+    const { win } = result;
 
+    // 放置規則：左側欄 → 右側欄 → content area（依 Window Spaces 的側欄可用性；
+    // 無 Window Spaces 時 getSidebarSides 為 undefined → content area）。
+    const sides = this.popoutLayout.getSidebarSides(win);
+    const location = sides?.left
+      ? ("left" as const)
+      : sides?.right
+        ? ("right" as const)
+        : ("tab" as const);
+
+    const folderSpaceLeaf = await this.popoutLayout.openPanel(win, location, FOLDER_SPACES_VIEW_TYPE);
+    makeNavigable(folderSpaceLeaf);
     await folderSpaceLeaf.setViewState({
       type: FOLDER_SPACES_VIEW_TYPE,
-      active: false,
-      state: { folderPath: folder.path }
+      active: true,
+      state: {
+        folderPath: folder.path,
+        followParent: getDefaultFollowParent(this.settings, true)
+      }
     });
-
-    makeNavigable(folderSpaceLeaf);
     makeNavigable(folderSpaceLeaf.view);
 
-    const editorLeaf = workspace.createLeafBySplit(folderSpaceLeaf, "vertical", false);
-    makeNavigable(editorLeaf);
-    await editorLeaf.setViewState({ type: "empty", active: true });
-
-    scheduleInitialFolderSpaceSplitSizing(folderSpaceLeaf, editorLeaf);
-
-    await workspace.revealLeaf(editorLeaf);
-    workspace.setActiveLeaf(editorLeaf, { focus: true });
+    await workspace.revealLeaf(folderSpaceLeaf);
+    workspace.setActiveLeaf(folderSpaceLeaf, { focus: true });
     await workspace.requestSaveLayout();
     refreshLeafHeader(folderSpaceLeaf);
+    this.applyChildBinding(parentPanelId ?? null, folderSpaceLeaf);
     return folderSpaceLeaf;
   }
 
@@ -456,191 +559,118 @@ export default class FolderSpacesPlugin extends Plugin {
   }
 
   /**
-   * Obsidian popout windows have no native left/right sidebar. When a Folder
-   * Space is opened from a popout window context (command or context-menu
-   * submenu), route the new view into that same popout window: reuse an
-   * existing full-height sidebar pane as the left/right sidebar equivalent,
-   * or create one from the popout's root split when it does not exist yet.
-   * Editor location opens in the popout's central editor area.
+   * Opens a Folder Space in the current Popout while keeping Folder Spaces'
+   * path uniqueness and binding rules outside the shared layout engine.
    */
   private async openFolderSpaceInPopout(
     folder: TFolder,
     location: Exclude<FolderSpaceLocation, "window">,
-    context: FolderSpaceWindowContext
+    context: FolderSpaceWindowContext,
+    parentPanelId?: string | null
   ): Promise<WorkspaceLeaf> {
     const workspace = context.workspace;
     const win = context.win;
-    const columns = collectPopoutColumns(win, workspace);
+    const existing = this.findExistingFolderSpaceInPopout(folder.path, location, win);
 
-    if (location === "left-sidebar" || location === "right-sidebar") {
-      const sidebar =
-        location === "left-sidebar"
-          ? findTrueLeftSidebar(win, columns)
-          : findTrueRightSidebar(win, columns);
-
-      if (sidebar) {
-        return this.openFolderSpaceInTabs(sidebar.tabs, folder, context);
-      }
-
-      let editorLeaf = getActiveLeafInWindow(workspace, win) ?? getLastLeafInWindow(workspace, win);
-      if (editorLeaf && isFolderSpaceLeaf(editorLeaf)) {
-        let otherLeaf: WorkspaceLeaf | null = null;
-        workspace.iterateAllLeaves((leaf) => {
-          if (!otherLeaf && getWindowOfLeaf(leaf) === win && !isFolderSpaceLeaf(leaf)) {
-            otherLeaf = leaf;
-          }
-        });
-        if (otherLeaf) {
-          editorLeaf = otherLeaf;
-        }
-      }
-
-      if (!editorLeaf) {
-        return this.openFolderSpaceInPopoutEditor(folder, context, columns);
-      }
-
-      const targetNode = getTopLevelNodeInWindow(editorLeaf) || editorLeaf;
-      const isParentNode =
-        targetNode !== editorLeaf &&
-        Boolean((targetNode as unknown as { children?: unknown }).children);
-      const before = location === "left-sidebar" ? !isParentNode : isParentNode;
-
-      const panelLeaf = workspace.createLeafBySplit(targetNode as unknown as WorkspaceLeaf, "vertical", before);
-      makeNavigable(panelLeaf);
-
-      await panelLeaf.setViewState({
-        type: FOLDER_SPACES_VIEW_TYPE,
-        active: false,
-        state: { folderPath: folder.path }
-      });
-
-      makeNavigable(panelLeaf);
-      makeNavigable(panelLeaf.view);
-      scheduleInitialFolderSpaceSplitSizing(panelLeaf, editorLeaf);
-
-      await workspace.revealLeaf(panelLeaf);
-      workspace.setActiveLeaf(panelLeaf, { focus: true });
-      await workspace.requestSaveLayout();
-      refreshLeafHeader(panelLeaf);
-      return panelLeaf;
-    }
-
-    return this.openFolderSpaceInPopoutEditor(folder, context, columns);
-  }
-
-  private async openFolderSpaceInTabs(
-    tabs: WorkspaceParent | null | undefined,
-    folder: TFolder,
-    context: FolderSpaceWindowContext
-  ): Promise<WorkspaceLeaf> {
-    const workspace = context.workspace;
-
-    const existing = findFolderSpaceInTabs(tabs, folder.path);
     if (existing) {
       makeNavigable(existing);
       makeNavigable(existing.view);
+      if (location === "left-sidebar" || location === "right-sidebar") {
+        markPopoutSidebarColumn(existing);
+      }
+      this.applyChildBinding(parentPanelId ?? null, existing);
       await workspace.revealLeaf(existing);
       workspace.setActiveLeaf(existing, { focus: true });
       await workspace.requestSaveLayout();
       return existing;
     }
 
-    if (!tabs) {
-      const fallback = workspace.getLeaf("tab");
-      makeNavigable(fallback);
-      await fallback.setViewState({
-        type: FOLDER_SPACES_VIEW_TYPE,
-        active: true,
-        state: { folderPath: folder.path }
-      });
-      makeNavigable(fallback);
-      makeNavigable(fallback.view);
-      await workspace.revealLeaf(fallback);
-      workspace.setActiveLeaf(fallback, { focus: true });
-      await workspace.requestSaveLayout();
-      refreshLeafHeader(fallback);
-      return fallback;
+    const leaf =
+      location === "left-sidebar" || location === "right-sidebar"
+        ? await this.popoutLayout.openSideLeaf(
+            win,
+            location === "left-sidebar" ? "left" : "right"
+          )
+        : await this.popoutLayout.openPanel(win, "tab", "empty");
+
+    if (location === "left-sidebar" || location === "right-sidebar") {
+      markPopoutSidebarColumn(leaf);
     }
 
-    const children = ((tabs as unknown as { children?: WorkspaceLeaf[] })?.children ?? []) as WorkspaceLeaf[];
-    const leaf = workspace.createLeafInParent(tabs as unknown as WorkspaceSplit, children.length);
     makeNavigable(leaf);
-
     await leaf.setViewState({
       type: FOLDER_SPACES_VIEW_TYPE,
       active: true,
-      state: { folderPath: folder.path }
+      state: {
+        folderPath: folder.path,
+        followParent: getDefaultFollowParent(this.settings, false)
+      }
     });
-
-    makeNavigable(leaf);
     makeNavigable(leaf.view);
     await workspace.revealLeaf(leaf);
     workspace.setActiveLeaf(leaf, { focus: true });
     await workspace.requestSaveLayout();
     refreshLeafHeader(leaf);
+    this.applyChildBinding(parentPanelId ?? null, leaf);
     return leaf;
   }
 
-  private async openFolderSpaceInPopoutEditor(
-    folder: TFolder,
-    context: FolderSpaceWindowContext,
-    columns?: PopoutColumn[]
-  ): Promise<WorkspaceLeaf> {
-    const workspace = context.workspace;
-    const win = context.win;
-    const resolvedColumns = columns ?? collectPopoutColumns(win, workspace);
-
-    const existing = this.findFolderSpaceInPopoutEditor(folder.path, win, workspace, resolvedColumns);
-    if (existing) {
-      makeNavigable(existing);
-      makeNavigable(existing.view);
-      await workspace.revealLeaf(existing);
-      workspace.setActiveLeaf(existing, { focus: true });
-      await workspace.requestSaveLayout();
-      return existing;
-    }
-
-    const allPanes = resolvedColumns.reduce((acc, col) => acc.concat(col.panes), [] as PopoutPane[]);
-    const targetPane = pickCenterPopoutPane(allPanes, win);
-    if (targetPane) {
-      return this.openFolderSpaceInTabs(targetPane.tabs, folder, context);
-    }
-
-    const baseLeaf = getActiveLeafInWindow(workspace, win) ?? getLastLeafInWindow(workspace, win);
-    return this.openFolderSpaceInTabs(baseLeaf?.parent, folder, context);
-  }
-
-  private findFolderSpaceInPopoutEditor(
+  private findExistingFolderSpaceInPopout(
     folderPath: string,
-    win: Window,
-    workspace: FolderSpacesPlugin["app"]["workspace"],
-    columns: PopoutColumn[]
+    location: Exclude<FolderSpaceLocation, "window">,
+    win: Window
   ): WorkspaceLeaf | null {
-    const leftSidebar = findTrueLeftSidebar(win, columns);
-    const rightSidebar = findTrueRightSidebar(win, columns);
-    const sidebarTabs = new Set<WorkspaceParent>([
-      leftSidebar?.tabs,
-      rightSidebar?.tabs
-    ].filter((tabs): tabs is WorkspaceParent => Boolean(tabs)));
+    const columns = this.popoutLayout.getTopLevelColumnElements(win);
+    const leftColumn = columns[0] ?? null;
+    const rightColumn = columns[columns.length - 1] ?? null;
+    const targetColumn =
+      location === "left-sidebar"
+        ? leftColumn
+        : location === "right-sidebar"
+          ? rightColumn
+          : null;
 
-    let found: WorkspaceLeaf | null = null;
-    workspace.iterateAllLeaves((leaf) => {
-      if (found || !leaf.parent) {
-        return;
-      }
-      if (getWindowOfLeaf(leaf) !== win || sidebarTabs.has(leaf.parent)) {
+    const candidates: FolderSpaceScopeCandidate<WorkspaceLeaf>[] = [];
+    this.app.workspace.iterateAllLeaves((leaf) => {
+      if (getWindowOfLeaf(leaf) !== win) {
         return;
       }
       const state = leaf.getViewState();
-      if (state.type === FOLDER_SPACES_VIEW_TYPE && state.state?.folderPath === folderPath) {
-        found = leaf;
+      if (state.type !== FOLDER_SPACES_VIEW_TYPE || typeof state.state?.folderPath !== "string") {
+        return;
+      }
+
+      const container = (leaf.view as { containerEl?: HTMLElement } | undefined)?.containerEl;
+      const column = container ? columns.find((candidate) => candidate.contains(container)) ?? null : null;
+      const inEditor = columns.length <= 1 || (column !== leftColumn && column !== rightColumn);
+      const inTargetRegion =
+        (location === "editor" && inEditor) ||
+        ((location === "left-sidebar" || location === "right-sidebar") && column === targetColumn);
+      if (inTargetRegion) {
+        candidates.push({
+          leaf,
+          folderPath: state.state.folderPath,
+          location,
+          window: win
+        });
       }
     });
-    return found;
+
+    return findExistingFolderSpace(candidates, {
+      folderPath,
+      location,
+      window: win
+    });
+  }
+
+  private async openSearchInWindow(win: Window, query: string): Promise<WorkspaceLeaf> {
+    const leaf = await this.popoutLayout.openPanel(win, "tab", "search");
+    await leaf.setViewState({ type: "search", state: { query } });
+    return leaf;
   }
 
   private refreshFolderSpaces(): void {
-    for (const leaf of this.app.workspace.getLeavesOfType(FOLDER_SPACES_VIEW_TYPE)) {
+    for (const leaf of getLeavesOfTypeAcrossWindows(this.app.workspace, FOLDER_SPACES_VIEW_TYPE)) {
       const view = leaf.view as View & { folderPath?: string | null; folderIconButtonEl?: HTMLElement };
       const folderPath = view.folderPath ?? null;
       const icon = this.getFolderSpaceIcon(folderPath);
@@ -654,147 +684,140 @@ export default class FolderSpacesPlugin extends Plugin {
   }
 
   private refreshFolderSpaceNavigation(): void {
-    for (const leaf of this.app.workspace.getLeavesOfType(FOLDER_SPACES_VIEW_TYPE)) {
+    for (const leaf of getLeavesOfTypeAcrossWindows(this.app.workspace, FOLDER_SPACES_VIEW_TYPE)) {
       makeFolderSpaceLeafProtected(leaf);
       makeNavigable(leaf.view);
     }
   }
-}
 
-const ensureSideLeafOriginals = new WeakMap<App["workspace"], App["workspace"]["ensureSideLeaf"]>();
-
-function storeEnsureSideLeafOriginal(
-  workspace: App["workspace"],
-  original: App["workspace"]["ensureSideLeaf"]
-): void {
-  if (!ensureSideLeafOriginals.has(workspace)) {
-    ensureSideLeafOriginals.set(workspace, original);
-  }
-}
-
-function restoreEnsureSideLeaf(workspace: App["workspace"]): void {
-  const original = ensureSideLeafOriginals.get(workspace);
-  if (original) {
-    (workspace as unknown as { ensureSideLeaf: App["workspace"]["ensureSideLeaf"] }).ensureSideLeaf = original;
-    ensureSideLeafOriginals.delete(workspace);
-  }
-}
-
-/**
- * Opens a native sidebar view (search, tag, outline, backlink, ...) inside a
- * popout window, mirroring the Folder Space mechanism: reuse an existing leaf
- * of that type in the window, reuse or create a full-height left/right sidebar
- * pane, or fall back to the editor area. The view is made dockable so it can
- * be dragged between splits/tab groups.
- */
-async function openSidebarViewInPopout(
-  workspace: FolderSpacesPlugin["app"]["workspace"],
-  viewType: string,
-  side: "left" | "right",
-  options: { active?: boolean; split?: boolean; reveal?: boolean; state?: Record<string, unknown> },
-  win: Window
-): Promise<WorkspaceLeaf> {
-  const reveal = options.reveal !== false;
-
-  const existing = workspace.getLeavesOfType(viewType).find((leaf) => getWindowOfLeaf(leaf) === win) ?? null;
-  if (existing) {
-    if (options.state) {
-      await existing.setViewState({ type: viewType, state: options.state });
+  /**
+   * Binds a newly created panel to the panel that opened it (the context-menu
+   * source). The child then carries the "sync focus with parent panel" toggle
+   * and follows the parent's folder focus when the toggle is ON.
+   */
+  private applyChildBinding(parentPanelId: string | null, leaf: WorkspaceLeaf): void {
+    if (!parentPanelId) {
+      return;
     }
-    await existing.loadIfDeferred();
-    if (existing.view) {
-      makeDockable(existing.view);
+
+    const view = leaf.view as unknown as PanelBindingView | undefined;
+    if (!view || typeof view.panelId !== "string") {
+      console.warn("[folder-spaces] Child panel view has no panelId; cannot bind.", { parentPanelId });
+      return;
     }
-    makeLeafUnreusable(existing);
-    if (reveal) {
-      await workspace.revealLeaf(existing);
+
+    // The freshly created leaf has not been through a layout-change reconcile
+    // yet, so register it first — `bind()` silently no-ops on unknown panels.
+    this.panelBindingManager.register(view);
+    // `bind()` sets the child's `parentPanelId` and refreshes its follow-toggle
+    // UI through `onBindingChanged()`.
+    this.panelBindingManager.bind(parentPanelId, view.panelId);
+    if (this.panelBindingManager.getParentOf(view.panelId)?.panelId !== parentPanelId) {
+      console.warn("[folder-spaces] Failed to bind child panel.", { parentPanelId, childId: view.panelId });
+      return;
     }
-    if (options.active) {
-      workspace.setActiveLeaf(existing, { focus: true });
-    }
-    return existing;
+    void this.app.workspace.requestSaveLayout();
   }
 
-  const columns = collectPopoutColumns(win, workspace);
-  const sidebar = side === "left" ? findTrueLeftSidebar(win, columns) : findTrueRightSidebar(win, columns);
+  /**
+   * Re-registers every live Folder Space panel and reconciles the binding
+   * registry. Runs on layout change so bindings persist across reloads and are
+   * cleaned up when a parent (or child) panel is closed.
+   */
+  private reconcileFolderSpaceBindings(): void {
+    const workspace = this.app.workspace;
+    this.syncNativeExplorerParents();
+    for (const leaf of getLeavesOfTypeAcrossWindows(workspace, FOLDER_SPACES_VIEW_TYPE)) {
+      const view = leaf.view as unknown as PanelBindingView | undefined;
+      if (view && typeof view.panelId === "string") {
+        this.panelBindingManager.register(view);
+      }
+    }
 
-  let leaf: WorkspaceLeaf;
-
-  if (sidebar) {
-    leaf = await openViewInTabs(workspace, sidebar.tabs, viewType, options.state);
-  } else {
-    const editorLeaf = getActiveLeafInWindow(workspace, win) ?? getLastLeafInWindow(workspace, win);
-    if (editorLeaf) {
-      const targetNode = getTopLevelNodeInWindow(editorLeaf) || editorLeaf;
-      const isParentNode =
-        targetNode !== editorLeaf &&
-        Boolean((targetNode as unknown as { children?: unknown }).children);
-      const before = side === "left" ? !isParentNode : isParentNode;
-      leaf = workspace.createLeafBySplit(targetNode as unknown as WorkspaceLeaf, "vertical", before);
-      makeNavigable(leaf);
-      await leaf.setViewState({ type: viewType, active: false, state: options.state });
-      scheduleInitialFolderSpaceSplitSizing(leaf, editorLeaf);
-    } else {
-      leaf = workspace.getLeaf("tab");
-      makeNavigable(leaf);
-      await leaf.setViewState({ type: viewType, active: false, state: options.state });
+    if (this.panelBindingManager.reconcile()) {
+      void workspace.requestSaveLayout();
     }
   }
 
-  makeNavigable(leaf);
-  makeNavigable(leaf.view);
-  await leaf.loadIfDeferred();
-  if (leaf.view) {
-    makeDockable(leaf.view);
-  }
-  makeLeafUnreusable(leaf);
-  if (reveal) {
-    await workspace.revealLeaf(leaf);
-  }
-  if (options.active) {
-    workspace.setActiveLeaf(leaf, { focus: true });
-  }
-  await workspace.requestSaveLayout();
-  return leaf;
-}
+  /**
+   * Registers each live native File Explorer leaf as a potential parent panel
+   * and attaches a click listener that drives its bound child's folder focus.
+   * Dropped leaves are unregistered so their bindings break.
+   */
+  private syncNativeExplorerParents(): void {
+    const workspace = this.app.workspace;
+    const seen = new Set<WorkspaceLeaf>();
+    workspace.iterateAllLeaves((leaf) => {
+      if (leaf.getViewState().type !== FILE_EXPLORER_VIEW_TYPE) {
+        return;
+      }
+      seen.add(leaf);
+      this.ensureNativeExplorerParent(leaf);
+    });
 
-async function openViewInTabs(
-  workspace: FolderSpacesPlugin["app"]["workspace"],
-  tabs: WorkspaceParent | null | undefined,
-  viewType: string,
-  state: Record<string, unknown> | undefined
-): Promise<WorkspaceLeaf> {
-  const children = ((tabs as unknown as { children?: WorkspaceLeaf[] })?.children ?? []) as WorkspaceLeaf[];
-  const leaf = workspace.createLeafInParent(tabs as unknown as WorkspaceSplit, children.length);
-  makeNavigable(leaf);
-  await leaf.setViewState({ type: viewType, active: true, state });
-  makeNavigable(leaf);
-  makeNavigable(leaf.view);
-  return leaf;
-}
-
-function getActiveLeafInWindow(
-  workspace: FolderSpacesPlugin["app"]["workspace"],
-  win: Window
-): WorkspaceLeaf | null {
-  const activeLeaf =
-    typeof workspace.getMostRecentLeaf === "function"
-      ? workspace.getMostRecentLeaf()
-      : workspace.activeLeaf;
-  return activeLeaf && getWindowOfLeaf(activeLeaf) === win ? activeLeaf : null;
-}
-
-function getLastLeafInWindow(
-  workspace: FolderSpacesPlugin["app"]["workspace"],
-  win: Window
-): WorkspaceLeaf | null {
-  let lastLeaf: WorkspaceLeaf | null = null;
-  workspace.iterateAllLeaves((leaf) => {
-    if (getWindowOfLeaf(leaf) === win) {
-      lastLeaf = leaf;
+    for (const [leaf, binding] of [...this.nativeExplorerBindings]) {
+      if (!seen.has(leaf)) {
+        this.panelBindingManager.unregister(binding.panelId);
+        this.nativeExplorerBindings.delete(leaf);
+      }
     }
-  });
-  return lastLeaf;
+  }
+
+  private ensureNativeExplorerParent(leaf: WorkspaceLeaf): void {
+    let binding = this.nativeExplorerBindings.get(leaf);
+    if (!binding) {
+      binding = createNativeExplorerBinding(this.panelBindingManager, leaf, (sourceLeaf) => {
+        this.activeContextSourceLeaf = sourceLeaf;
+      });
+      this.nativeExplorerBindings.set(leaf, binding);
+    }
+    binding.attach();
+    this.panelBindingManager.register(binding.handle);
+  }
+
+  /**
+   * Resolves the panel that acted as the context-menu source. When a folder is
+   * right-clicked inside a Folder Space panel, the `file-menu` event carries
+   * that panel's leaf; when right-clicked in the native File Explorer, it
+   * carries the native explorer's leaf, which also acts as a parent panel.
+   * Panels can nest to any depth.
+   */
+  private getContextParentPanelId(leaf: WorkspaceLeaf | null | undefined): string | null {
+    if (!leaf) {
+      return null;
+    }
+
+    const type = leaf.getViewState().type;
+
+    if (type === FOLDER_SPACES_VIEW_TYPE) {
+      const view = leaf.view as unknown as PanelBindingView | undefined;
+      if (!view || typeof view.panelId !== "string") {
+        console.warn("[folder-spaces] Source Folder Space view has no panelId; cannot bind.", { type });
+        return null;
+      }
+      // Register the source panel on-demand so `bind()` finds it even when a
+      // layout-change reconcile has not run yet.
+      this.panelBindingManager.register(view);
+      return view.panelId;
+    }
+
+    if (type === FILE_EXPLORER_VIEW_TYPE) {
+      // Ensure the native explorer parent is ready even before a layout-change
+      // reconcile has run for it.
+      let binding = this.nativeExplorerBindings.get(leaf);
+      if (!binding) {
+        binding = createNativeExplorerBinding(this.panelBindingManager, leaf, (sourceLeaf) => {
+          this.activeContextSourceLeaf = sourceLeaf;
+        });
+        this.nativeExplorerBindings.set(leaf, binding);
+      }
+      binding.attach();
+      this.panelBindingManager.register(binding.handle);
+      return binding.panelId;
+    }
+
+    return null;
+  }
 }
 
 function createTabInLastSplit(
@@ -806,6 +829,19 @@ function createTabInLastSplit(
   return lastLeaf
     ? workspace.createLeafInParent(lastLeaf.parent as WorkspaceSplit, -1)
     : createFirstLeaf();
+}
+
+function getLeavesOfTypeAcrossWindows(
+  workspace: FolderSpacesPlugin["app"]["workspace"],
+  type: string
+): WorkspaceLeaf[] {
+  const leaves: WorkspaceLeaf[] = [];
+  workspace.iterateAllLeaves((leaf) => {
+    if (leaf.getViewState().type === type) {
+      leaves.push(leaf);
+    }
+  });
+  return leaves;
 }
 
 function getLastLeafInRoot(
@@ -821,22 +857,146 @@ function getLastLeafInRoot(
   return lastLeaf;
 }
 
-function isFolderSpaceLeaf(leaf: WorkspaceLeaf): boolean {
-  return leaf.getViewState().type === FOLDER_SPACES_VIEW_TYPE;
+interface NativeExplorerViewLike {
+  containerEl?: HTMLElement;
+  navFileContainerEl?: HTMLElement;
+  files?: Map<HTMLElement, TAbstractFile>;
 }
 
-function findFolderSpaceInTabs(
-  tabs: WorkspaceParent | null | undefined,
-  folderPath: string
-): WorkspaceLeaf | null {
-  const children = ((tabs as unknown as { children?: WorkspaceLeaf[] })?.children ?? []) as WorkspaceLeaf[];
-  for (const leaf of children) {
-    const state = leaf.getViewState();
-    if (state.type === FOLDER_SPACES_VIEW_TYPE && state.state?.folderPath === folderPath) {
-      return leaf;
+interface NativeExplorerBinding {
+  leaf: WorkspaceLeaf;
+  panelId: string;
+  handle: PanelBindingView;
+  attach(): void;
+}
+
+/**
+ * Turns a native File Explorer leaf into a parent panel. The native explorer
+ * shows the whole vault (its `getFolderPath` is irrelevant), so the child's
+ * scope always follows the explicitly clicked folder. Two capture listeners
+ * cooperate:
+ *
+ * - A **window capture** listener drives the bound child (it fires before any
+ *   document-level interceptor such as the Folder Notes plugin) but never
+ *   stops the event, leaving downstream plugins free to react.
+ * - A **container capture** listener on the explorer's tree container consumes
+ *   a folder-name click (`preventDefault` + `stopPropagation`) so the native
+ *   tree does not collapse/expand while it navigates a following child. It only
+ *   runs when no earlier document-level interceptor already handled the click.
+ *
+ * A chevron click, a click without a following child (or with its "sync focus
+ * with parent panel" toggle OFF), and modifier clicks keep the native behavior
+ * untouched.
+ *
+ * The parent identity is derived from the leaf's persisted `id` (stable across
+ * vault reloads) so that child bindings survive restarting Obsidian, just like
+ * Folder Space panel ids stored in the view state do.
+ */
+function createNativeExplorerBinding(
+  manager: PanelBindingManager,
+  leaf: WorkspaceLeaf,
+  onContextSource: (sourceLeaf: WorkspaceLeaf) => void
+): NativeExplorerBinding {
+  const leafId = (leaf as WorkspaceLeaf & { id?: string }).id;
+  const panelId = leafId ? `native:${leafId}` : generatePanelId();
+  let handler: ((event: MouseEvent) => void) | null = null;
+  let contextHandler: ((event: MouseEvent) => void) | null = null;
+  let toggleBlocker: ((event: MouseEvent) => void) | null = null;
+
+  const handle: PanelBindingView = {
+    panelId,
+    parentPanelId: null,
+    followParent: true,
+    // The view may not be loaded yet on startup; treat the leaf as alive as
+    // long as it still hosts the file-explorer state so a first reconcile never
+    // prunes a valid parent and orphans its children. Actual cleanup of closed
+    // explorer leaves is handled by `syncNativeExplorerParents`.
+    isAlive: () => {
+      try {
+        return leaf.getViewState().type === FILE_EXPLORER_VIEW_TYPE;
+      } catch {
+        return false;
+      }
+    },
+    getFolderPath: () => null,
+    setFolderPath: () => {},
+    onBindingChanged: () => {}
+  };
+
+  const attach = (): void => {
+    const view = leaf.view as unknown as NativeExplorerViewLike | undefined;
+    const doc = view?.containerEl?.ownerDocument ?? null;
+    const win = doc?.defaultView ?? null;
+    if (!win) {
+      return;
     }
-  }
-  return null;
+
+    // Register the click listener ONCE on the window in the capture phase.
+    // Window capture always fires before any document-level listener, so the
+    // Folder Notes plugin's stopImmediatePropagation() on the document can
+    // never block it, regardless of plugin load order. The handler re-resolves
+    // the view at click time, so re-attaching is never needed. It drives the
+    // child but never stops the event, so downstream plugins (e.g. Folder
+    // Notes) are left free to react. Clicks outside this explorer's tree are
+    // ignored by the containment check.
+    if (!handler) {
+      handler = (event: MouseEvent) => {
+        const child = manager.getChildOf(panelId);
+        if (!child || !child.followParent) {
+          return;
+        }
+        const currentView = leaf.view as unknown as NativeExplorerViewLike | undefined;
+        const currentContainer = currentView?.navFileContainerEl;
+        if (!currentContainer) {
+          return;
+        }
+        const folderPath = resolveClickedFolderPath(currentContainer, currentView?.files, event);
+        if (folderPath) {
+          manager.propagateFrom(panelId, folderPath);
+        }
+      };
+      win.addEventListener("click", handler, { capture: true });
+    }
+
+    const container = view?.navFileContainerEl;
+    if (toggleBlocker && container) {
+      container.removeEventListener("click", toggleBlocker, { capture: true });
+    }
+    if (container) {
+      // Consumes a folder-name click at the tree container so the native tree
+      // does not collapse/expand while it navigates a following child. This
+      // listener only fires when no earlier document-level interceptor (e.g.
+      // the Folder Notes plugin) already handled the click, so it never blocks
+      // plugins that open a folder note.
+      toggleBlocker = (event: MouseEvent) => {
+        const child = manager.getChildOf(panelId);
+        if (!child || !child.followParent) {
+          return;
+        }
+        const currentView = leaf.view as unknown as NativeExplorerViewLike | undefined;
+        const currentContainer = currentView?.navFileContainerEl;
+        if (!currentContainer || currentContainer !== container) {
+          return;
+        }
+        if (resolveClickedFolderPath(currentContainer, currentView?.files, event)) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+      };
+      container.addEventListener("click", toggleBlocker, { capture: true });
+    }
+
+    if (contextHandler && container) {
+      container.removeEventListener("contextmenu", contextHandler, { capture: true });
+    }
+    if (container) {
+      contextHandler = () => onContextSource(leaf);
+      container.addEventListener("contextmenu", contextHandler, { capture: true });
+    }
+  };
+
+  attach();
+  return { leaf, panelId, handle, attach };
 }
 
 function isFolderSpaceLeafInLocation(
@@ -863,43 +1023,13 @@ function isFolderSpaceLeafInLocation(
 
 function refreshLeafHeader(leaf: WorkspaceLeaf): void {
   const leafWithHeader = leaf as WorkspaceLeaf & { updateHeader?: () => void };
-  leafWithHeader.updateHeader?.();
-}
-
-function scheduleInitialFolderSpaceSplitSizing(
-  folderSpaceLeaf: WorkspaceLeaf,
-  editorLeaf: WorkspaceLeaf
-): void {
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      applyInitialFolderSpaceSplitSizing(folderSpaceLeaf, editorLeaf);
-    });
-  });
-}
-
-function applyInitialFolderSpaceSplitSizing(
-  folderSpaceLeaf: WorkspaceLeaf,
-  editorLeaf: WorkspaceLeaf
-): void {
-  const folderSpaceContainer = getViewContainer(folderSpaceLeaf);
-  const editorContainer = getViewContainer(editorLeaf);
-  if (!folderSpaceContainer || !editorContainer) {
-    return;
+  try {
+    leafWithHeader.updateHeader?.();
+  } catch (error) {
+    console.warn("[folder-spaces] Header update failed:", error);
   }
-
-  const split = folderSpaceContainer.closest<HTMLElement>(".workspace-split.mod-vertical");
-  if (!split || !split.contains(editorContainer)) {
-    return;
-  }
-
-  const folderSpacePane = getDirectSplitChild(split, folderSpaceContainer);
-  const editorPane = getDirectSplitChild(split, editorContainer);
-  if (!folderSpacePane || !editorPane || folderSpacePane === editorPane) {
-    return;
-  }
-
-  folderSpacePane.style.flex = `0 0 ${FOLDER_SPACE_INITIAL_SPLIT_RATIO * 100}%`;
-  editorPane.style.flex = "1 1 0%";
+  const view = leaf.view as { folderPath?: string | null } | undefined;
+  updateFolderSpaceLeafTooltip(leaf, view?.folderPath ?? null);
 }
 
 function getViewContainer(leaf: WorkspaceLeaf): HTMLElement | null {
@@ -913,6 +1043,25 @@ function getDirectSplitChild(split: HTMLElement, element: HTMLElement): HTMLElem
     current = current.parentElement;
   }
   return current;
+}
+
+/**
+ * 將 Popout 中 Folder Space 所在的側欄欄位標記為 sidebar
+ * （與 Window Spaces 的 UI 標記 window-spaces-sidebar-column 一致）。
+ * shared engine 的 isLeafInSideColumn / getCenterPanes 以該 class 為被動判定
+ * 依據；在無 Window Spaces 管理（無 activity bar hints / class）的環境，
+ * Folder Spaces 自行標記可確保開檔排除側欄欄位。class 為 idempotent，
+ * Window Spaces 已標記時無副作用。
+ */
+function markPopoutSidebarColumn(leaf: WorkspaceLeaf): void {
+  const container = getViewContainer(leaf);
+  if (!container) return;
+  const rootEl = container.closest(".workspace-split.mod-root") as HTMLElement | null;
+  if (!rootEl) return;
+  const column = getDirectSplitChild(rootEl, container);
+  if (column && !column.classList.contains("window-spaces-sidebar-column")) {
+    column.classList.add("window-spaces-sidebar-column");
+  }
 }
 
 function getLocationIcon(location: FolderSpaceLocation): string {

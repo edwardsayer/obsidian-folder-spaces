@@ -2,10 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  DEFAULT_VIEW_ICON,
+  getDefaultFollowParent,
   getDefaultOpenLocation,
   normalizeSettings,
   resolveOpenLocation,
-  resolveViewIcon
+  resolveViewIcon,
+  resolveDepthMode,
+  resolveContentMode
 } from "../src/settings.js";
 
 (globalThis as { getIconIds?: () => string[] }).getIconIds = () => [
@@ -25,7 +29,6 @@ test("normalizeSettings merges defaults and normalizes folder icons", () => {
     }
   });
 
-  assert.equal(settings.viewIcon, "lucide-folders");
   assert.equal(settings.folderIcons["Projects/Active"], "lucide-rocket");
   assert.equal(settings.folderIcons["Projects/Empty"], "lucide-star");
   assert.equal("Projects/Archive" in settings.folderIcons, false);
@@ -90,16 +93,51 @@ test("getDefaultOpenLocation picks the per-window setting", () => {
   assert.equal(getDefaultOpenLocation(settings, true), "left-sidebar");
 });
 
-test("resolveViewIcon returns configured icon or falls back to default", () => {
-  assert.equal(resolveViewIcon("lucide-rocket"), "lucide-rocket");
-  assert.equal(resolveViewIcon("invalid-icon-id"), "lucide-folders");
-  assert.equal(resolveViewIcon(""), "lucide-folders");
-  assert.equal(resolveViewIcon(null), "lucide-folders");
+test("normalizeSettings defaults and normalizes ribbon and follow-parent settings", () => {
+  const defaults = normalizeSettings({});
+  assert.equal(defaults.showRibbonIcon, true);
+  assert.equal(defaults.defaultFollowParentSameWindow, true);
+  assert.equal(defaults.defaultFollowParentNewWindow, false);
+
+  const custom = normalizeSettings({
+    showRibbonIcon: false,
+    defaultFollowParentSameWindow: false,
+    defaultFollowParentNewWindow: true
+  });
+  assert.equal(custom.showRibbonIcon, false);
+  assert.equal(custom.defaultFollowParentSameWindow, false);
+  assert.equal(custom.defaultFollowParentNewWindow, true);
+
+  // Non-boolean values fall back to the defaults
+  const weird = normalizeSettings({
+    showRibbonIcon: "yes",
+    defaultFollowParentSameWindow: 1,
+    defaultFollowParentNewWindow: "no"
+  });
+  assert.equal(weird.showRibbonIcon, true);
+  assert.equal(weird.defaultFollowParentSameWindow, true);
+  assert.equal(weird.defaultFollowParentNewWindow, false);
 });
 
-test("folderIcons resolves folder specific icon with fallback to viewIcon", () => {
+test("getDefaultFollowParent picks the per-window behavior", () => {
   const settings = normalizeSettings({
-    viewIcon: "lucide-folders",
+    defaultFollowParentSameWindow: true,
+    defaultFollowParentNewWindow: false
+  });
+
+  assert.equal(getDefaultFollowParent(settings, false), true);
+  assert.equal(getDefaultFollowParent(settings, true), false);
+});
+
+test("resolveViewIcon returns configured icon or falls back to the fixed default", () => {
+  assert.equal(resolveViewIcon("lucide-rocket"), "lucide-rocket");
+  assert.equal(resolveViewIcon("invalid-icon-id"), DEFAULT_VIEW_ICON);
+  assert.equal(resolveViewIcon(""), DEFAULT_VIEW_ICON);
+  assert.equal(resolveViewIcon(null), DEFAULT_VIEW_ICON);
+});
+
+test("folderIcons resolves folder specific icon with fallback to the fixed default icon", () => {
+  const settings = normalizeSettings({
     folderIcons: {
       "Projects/Active": "lucide-rocket"
     }
@@ -112,10 +150,59 @@ test("folderIcons resolves folder specific icon with fallback to viewIcon", () =
         return resolveViewIcon(folderIcon);
       }
     }
-    return resolveViewIcon(settings.viewIcon);
+    return DEFAULT_VIEW_ICON;
   };
 
   assert.equal(getIcon("Projects/Active"), "lucide-rocket");
-  assert.equal(getIcon("Projects/Other"), "lucide-folders");
-  assert.equal(getIcon(null), "lucide-folders");
+  assert.equal(getIcon("Projects/Other"), DEFAULT_VIEW_ICON);
+  assert.equal(getIcon(null), DEFAULT_VIEW_ICON);
+});
+
+test("resolveDepthMode returns valid depth mode or falls back to all-level", () => {
+  assert.equal(resolveDepthMode("one-level"), "one-level");
+  assert.equal(resolveDepthMode("two-level"), "two-level");
+  assert.equal(resolveDepthMode("all-level"), "all-level");
+  assert.equal(resolveDepthMode("bogus"), "all-level");
+  assert.equal(resolveDepthMode(undefined), "all-level");
+  assert.equal(resolveDepthMode(null), "all-level");
+});
+
+test("resolveContentMode returns valid content mode or falls back to all", () => {
+  assert.equal(resolveContentMode("folders"), "folders");
+  assert.equal(resolveContentMode("files"), "files");
+  assert.equal(resolveContentMode("all"), "all");
+  assert.equal(resolveContentMode("bogus"), "all");
+  assert.equal(resolveContentMode(undefined), "all");
+  assert.equal(resolveContentMode(null), "all");
+});
+
+test("normalizeSettings defaults and normalizes depth and content modes", () => {
+  const defaults = normalizeSettings({});
+  assert.equal(defaults.defaultDepthMode, "all-level");
+  assert.equal(defaults.defaultContentMode, "all");
+  assert.deepEqual(defaults.folderDepthModes, {});
+  assert.deepEqual(defaults.folderContentModes, {});
+
+  const custom = normalizeSettings({
+    defaultDepthMode: "two-level",
+    defaultContentMode: "folders",
+    folderDepthModes: {
+      "Projects/Active": "two-level",
+      "Projects/Archive": "bogus",
+      "": "one-level"
+    },
+    folderContentModes: {
+      "Projects/Active": "files",
+      "Projects/Archive": "bogus",
+      "": "files"
+    }
+  });
+  assert.equal(custom.defaultDepthMode, "two-level");
+  assert.equal(custom.defaultContentMode, "folders");
+  assert.equal(custom.folderDepthModes["Projects/Active"], "two-level");
+  assert.equal("Projects/Archive" in custom.folderDepthModes, false);
+  assert.equal("" in custom.folderDepthModes, false);
+  assert.equal(custom.folderContentModes["Projects/Active"], "files");
+  assert.equal("Projects/Archive" in custom.folderContentModes, false);
+  assert.equal("" in custom.folderContentModes, false);
 });

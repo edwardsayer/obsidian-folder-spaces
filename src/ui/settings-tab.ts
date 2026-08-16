@@ -1,18 +1,16 @@
-import { App, Plugin, PluginSettingTab, Setting, setIcon } from "obsidian";
+import { App, Plugin, PluginSettingTab, Setting } from "obsidian";
 
-import { t, tf } from "../i18n";
+import { t } from "../i18n";
 import {
-  DEFAULT_SETTINGS,
   type FolderSpaceLocation,
   type FolderSpacesSettings,
   resolveOpenLocation,
-  resolveViewIcon
+  resolveDepthMode,
+  resolveContentMode
 } from "../settings";
-import { IconPickerModal } from "./icon-picker-modal";
 
 export interface FolderSpacesSettingsController {
   settings: FolderSpacesSettings;
-  getFolderSpaceIcon(): string;
   updateSettings(nextSettings: FolderSpacesSettings): Promise<void>;
 }
 
@@ -78,7 +76,15 @@ export class FolderSpacesSettingTab extends PluginSettingTab {
       }
     );
 
-    new Setting(containerEl)
+    const displayPanel = containerEl.createDiv({ cls: "folder-spaces-options-panel" });
+    displayPanel
+      .createDiv({ cls: "folder-spaces-options-panel-title" })
+      .setText(t("settingsDisplayOptionsName"));
+    displayPanel
+      .createDiv({ cls: "folder-spaces-options-panel-desc" })
+      .setText(t("settingsDisplayOptionsDesc"));
+
+    new Setting(displayPanel)
       .setName(t("settingsDefaultFolderViewName"))
       .setDesc(t("settingsDefaultFolderViewDesc"))
       .addDropdown((dropdown) => {
@@ -94,43 +100,80 @@ export class FolderSpacesSettingTab extends PluginSettingTab {
           });
       });
 
-    const iconSetting = new Setting(containerEl)
-      .setName(t("settingsViewIconName"))
-      .setDesc(t("settingsViewIconDesc"))
-      .setClass("folder-spaces-icon-setting");
+    new Setting(displayPanel)
+      .setName(t("settingsDefaultDepthModeName"))
+      .setDesc(t("settingsDefaultDepthModeDesc"))
+      .addDropdown((dropdown) => {
+        dropdown
+          .addOption("one-level", t("depthModeOneLevel"))
+          .addOption("two-level", t("depthModeTwoLevel"))
+          .addOption("all-level", t("depthModeAllLevel"))
+          .setValue(this.plugin.settings.defaultDepthMode)
+          .onChange(async (value) => {
+            await this.plugin.updateSettings({
+              ...this.plugin.settings,
+              defaultDepthMode: resolveDepthMode(value)
+            });
+          });
+      });
 
-    const previewEl = iconSetting.controlEl.createDiv({ cls: "folder-spaces-icon-preview" });
-    const currentIconEl = iconSetting.infoEl.createDiv({ cls: "folder-spaces-setting-feedback" });
+    new Setting(displayPanel)
+      .setName(t("settingsDefaultContentModeName"))
+      .setDesc(t("settingsDefaultContentModeDesc"))
+      .addDropdown((dropdown) => {
+        dropdown
+          .addOption("folders", t("contentModeFolders"))
+          .addOption("files", t("contentModeFiles"))
+          .addOption("all", t("contentModeAll"))
+          .setValue(this.plugin.settings.defaultContentMode)
+          .onChange(async (value) => {
+            await this.plugin.updateSettings({
+              ...this.plugin.settings,
+              defaultContentMode: resolveContentMode(value)
+            });
+          });
+      });
 
-    const renderSelectedIcon = (iconName: string): void => {
-      const icon = resolveViewIcon(iconName);
-      previewEl.empty();
-      setIcon(previewEl, icon);
-      currentIconEl.setText(tf("settingsViewIconCurrent", { icon }));
-    };
-
-    iconSetting.addButton((button) => {
-      button.setButtonText(t("settingsViewIconChoose")).onClick(() => {
-        new IconPickerModal(this.app, this.plugin.getFolderSpaceIcon(), async (icon) => {
+    new Setting(containerEl)
+      .setName(t("settingsShowRibbonIconName"))
+      .setDesc(t("settingsShowRibbonIconDesc"))
+      .addToggle((toggle) => {
+        toggle.setValue(this.plugin.settings.showRibbonIcon).onChange(async (value) => {
           await this.plugin.updateSettings({
             ...this.plugin.settings,
-            viewIcon: icon
+            showRibbonIcon: value
           });
-          renderSelectedIcon(icon);
-        }).open();
-      });
-    });
-
-    iconSetting.addButton((button) => {
-      button.setButtonText(t("settingsViewIconReset")).onClick(async () => {
-        await this.plugin.updateSettings({
-          ...this.plugin.settings,
-          viewIcon: DEFAULT_SETTINGS.viewIcon
         });
-        renderSelectedIcon(DEFAULT_SETTINGS.viewIcon);
       });
-    });
 
-    renderSelectedIcon(this.plugin.settings.viewIcon);
+    const followParentPanel = containerEl.createDiv({ cls: "folder-spaces-options-panel" });
+    followParentPanel
+      .createDiv({ cls: "folder-spaces-options-panel-title" })
+      .setText(t("settingsDefaultFollowParentName"));
+    followParentPanel
+      .createDiv({ cls: "folder-spaces-options-panel-desc" })
+      .setText(t("settingsDefaultFollowParentDesc"));
+
+    new Setting(followParentPanel)
+      .setName(t("settingsSameWindowName"))
+      .addToggle((toggle) => {
+        toggle.setValue(this.plugin.settings.defaultFollowParentSameWindow).onChange(async (value) => {
+          await this.plugin.updateSettings({
+            ...this.plugin.settings,
+            defaultFollowParentSameWindow: value
+          });
+        });
+      });
+
+    new Setting(followParentPanel)
+      .setName(t("settingsNewWindowName"))
+      .addToggle((toggle) => {
+        toggle.setValue(this.plugin.settings.defaultFollowParentNewWindow).onChange(async (value) => {
+          await this.plugin.updateSettings({
+            ...this.plugin.settings,
+            defaultFollowParentNewWindow: value
+          });
+        });
+      });
   }
 }

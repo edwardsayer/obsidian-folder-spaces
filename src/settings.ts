@@ -1,35 +1,66 @@
-import type { FolderSpaceViewMode } from "./compatibility-helpers.js";
-export type { FolderSpaceViewMode };
+import type { FolderSpaceViewMode, FolderSpaceDepthMode, FolderSpaceContentMode } from "./compatibility-helpers.js";
+export type { FolderSpaceViewMode, FolderSpaceDepthMode, FolderSpaceContentMode };
 
 export type FolderSpaceLocation = "left-sidebar" | "right-sidebar" | "editor" | "window";
 
+/**
+ * Fixed default icon for Folder Space tabs and menu entries. It is part of the
+ * product identity and is intentionally not user-configurable; only per-folder
+ * icons (from the header bar) can be customized.
+ */
+export const DEFAULT_VIEW_ICON = "lucide-folders";
+
 export interface FolderSpacesSettings {
-  viewIcon: string;
   folderIcons: Record<string, string>;
   defaultOpenLocationMain: FolderSpaceLocation;
   defaultOpenLocationPopout: FolderSpaceLocation;
   defaultViewMode: FolderSpaceViewMode;
   folderViewModes: Record<string, FolderSpaceViewMode>;
+  defaultDepthMode: FolderSpaceDepthMode;
+  folderDepthModes: Record<string, FolderSpaceDepthMode>;
+  defaultContentMode: FolderSpaceContentMode;
+  folderContentModes: Record<string, FolderSpaceContentMode>;
+  showRibbonIcon: boolean;
+  defaultFollowParentSameWindow: boolean;
+  defaultFollowParentNewWindow: boolean;
 }
 
 export const DEFAULT_SETTINGS: FolderSpacesSettings = {
-  viewIcon: "lucide-folders",
   folderIcons: {},
   defaultOpenLocationMain: "right-sidebar",
   defaultOpenLocationPopout: "left-sidebar",
   defaultViewMode: "tree",
-  folderViewModes: {}
+  folderViewModes: {},
+  defaultDepthMode: "all-level",
+  folderDepthModes: {},
+  defaultContentMode: "all",
+  folderContentModes: {},
+  showRibbonIcon: true,
+  defaultFollowParentSameWindow: true,
+  defaultFollowParentNewWindow: false
 };
 
 export function normalizeSettings(data: unknown): FolderSpacesSettings {
   const settings = getSettingsObject(data);
 
   return {
-    viewIcon: resolveViewIcon(settings.viewIcon),
     folderIcons: normalizeFolderIcons(settings.folderIcons),
     ...resolveOpenLocations(settings),
     defaultViewMode: resolveViewMode(settings.defaultViewMode),
-    folderViewModes: normalizeFolderViewModes(settings.folderViewModes)
+    folderViewModes: normalizeFolderViewModes(settings.folderViewModes),
+    defaultDepthMode: resolveDepthMode(settings.defaultDepthMode),
+    folderDepthModes: normalizeFolderDepthModes(settings.folderDepthModes),
+    defaultContentMode: resolveContentMode(settings.defaultContentMode),
+    folderContentModes: normalizeFolderContentModes(settings.folderContentModes),
+    showRibbonIcon: normalizeBoolean(settings.showRibbonIcon, DEFAULT_SETTINGS.showRibbonIcon),
+    defaultFollowParentSameWindow: normalizeBoolean(
+      settings.defaultFollowParentSameWindow,
+      DEFAULT_SETTINGS.defaultFollowParentSameWindow
+    ),
+    defaultFollowParentNewWindow: normalizeBoolean(
+      settings.defaultFollowParentNewWindow,
+      DEFAULT_SETTINGS.defaultFollowParentNewWindow
+    )
   };
 }
 
@@ -68,6 +99,13 @@ export function getDefaultOpenLocation(
   return isPopout ? settings.defaultOpenLocationPopout : settings.defaultOpenLocationMain;
 }
 
+export function getDefaultFollowParent(
+  settings: Pick<FolderSpacesSettings, "defaultFollowParentSameWindow" | "defaultFollowParentNewWindow">,
+  isNewWindow: boolean
+): boolean {
+  return isNewWindow ? settings.defaultFollowParentNewWindow : settings.defaultFollowParentSameWindow;
+}
+
 export function resolveViewMode(mode: unknown): FolderSpaceViewMode {
   return mode === "flat" ? "flat" : "tree";
 }
@@ -75,13 +113,17 @@ export function resolveViewMode(mode: unknown): FolderSpaceViewMode {
 export function resolveViewIcon(iconName: string | null | undefined): string {
   const normalized = iconName?.trim();
   if (!normalized) {
-    return DEFAULT_SETTINGS.viewIcon;
+    return DEFAULT_VIEW_ICON;
   }
 
-  return isValidViewIcon(normalized) ? normalized : DEFAULT_SETTINGS.viewIcon;
+  return isValidViewIcon(normalized) ? normalized : DEFAULT_VIEW_ICON;
 }
 
 type LegacyFolderSpacesSettings = Partial<FolderSpacesSettings> & { defaultOpenLocation?: unknown };
+
+function normalizeBoolean(value: unknown, fallback: boolean): boolean {
+  return typeof value === "boolean" ? value : fallback;
+}
 
 function getSettingsObject(data: unknown): LegacyFolderSpacesSettings {
   if (!data || typeof data !== "object") {
@@ -142,10 +184,53 @@ function normalizeFolderIcons(data: unknown): Record<string, string> {
       continue;
     }
     const resolved = resolveViewIcon(icon);
-    if (!resolved || resolved === DEFAULT_SETTINGS.viewIcon) {
+    if (!resolved || resolved === DEFAULT_VIEW_ICON) {
       continue;
     }
     normalized[trimmedPath] = resolved;
+  }
+  return normalized;
+}
+
+export function resolveDepthMode(mode: unknown): FolderSpaceDepthMode {
+  return mode === "one-level" || mode === "two-level" ? mode : "all-level";
+}
+
+export function resolveContentMode(mode: unknown): FolderSpaceContentMode {
+  if (mode === "folders" || mode === "files") {
+    return mode;
+  }
+  return "all";
+}
+
+function normalizeFolderDepthModes(data: unknown): Record<string, FolderSpaceDepthMode> {
+  if (!data || typeof data !== "object") {
+    return {};
+  }
+
+  const normalized: Record<string, FolderSpaceDepthMode> = {};
+  for (const [path, mode] of Object.entries(data as Record<string, unknown>)) {
+    const trimmedPath = path.trim();
+    if (!trimmedPath || (mode !== "one-level" && mode !== "two-level" && mode !== "all-level")) {
+      continue;
+    }
+    normalized[trimmedPath] = mode;
+  }
+  return normalized;
+}
+
+function normalizeFolderContentModes(data: unknown): Record<string, FolderSpaceContentMode> {
+  if (!data || typeof data !== "object") {
+    return {};
+  }
+
+  const normalized: Record<string, FolderSpaceContentMode> = {};
+  for (const [path, mode] of Object.entries(data as Record<string, unknown>)) {
+    const trimmedPath = path.trim();
+    if (!trimmedPath || (mode !== "folders" && mode !== "files" && mode !== "all")) {
+      continue;
+    }
+    normalized[trimmedPath] = mode;
   }
   return normalized;
 }

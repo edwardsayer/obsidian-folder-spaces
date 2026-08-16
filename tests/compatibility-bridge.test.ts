@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   findToolbarButton,
+  getFolderSpaceTitle,
   isMirrorAttribute,
   isPathInsideFolder,
   normalizeState
@@ -73,15 +74,21 @@ test("findToolbarButton matches toolbar buttons semantically regardless of index
 });
 
 test("normalizeState handles null, undefined, whitespace, and valid state objects", () => {
-  assert.deepEqual(normalizeState(null), { folderPath: null });
-  assert.deepEqual(normalizeState(undefined), { folderPath: null });
-  assert.deepEqual(normalizeState({}), { folderPath: null });
-  assert.deepEqual(normalizeState({ folderPath: "  " }), { folderPath: null });
+  assert.deepEqual(normalizeState(null), { folderPath: "" });
+  assert.deepEqual(normalizeState(undefined), { folderPath: "" });
+  assert.deepEqual(normalizeState({}) , { folderPath: "" });
+  assert.deepEqual(normalizeState({ folderPath: "  " }), { folderPath: "" });
   assert.deepEqual(normalizeState({ folderPath: "Projects/Active" }), { folderPath: "Projects/Active" });
   assert.deepEqual(normalizeState({ folderPath: "  Notes/2026  " }), { folderPath: "Notes/2026" });
+  // The empty path represents the vault root.
+  assert.deepEqual(normalizeState({ folderPath: "" }), { folderPath: "" });
   assert.deepEqual(normalizeState({ folderPath: "Notes", viewMode: "flat" }), {
     folderPath: "Notes",
     viewMode: "flat"
+  });
+  assert.deepEqual(normalizeState({ folderPath: "Notes", depthMode: "two-level" }), {
+    folderPath: "Notes",
+    depthMode: "two-level"
   });
   assert.deepEqual(normalizeState({ folderPath: "Notes", viewMode: "unknown" }), {
     folderPath: "Notes"
@@ -98,4 +105,31 @@ test("isPathInsideFolder accurately evaluates path boundary conditions", () => {
   // Border collision check
   assert.equal(isPathInsideFolder("Projects-archive", "Projects"), false);
   assert.equal(isPathInsideFolder("Projects-archive/File.md", "Projects"), false);
+
+  // The vault root (empty path) contains everything
+  assert.equal(isPathInsideFolder("Projects", ""), true);
+  assert.equal(isPathInsideFolder("Projects/Sub/File.md", ""), true);
+  assert.equal(isPathInsideFolder(null, ""), false);
+  assert.equal(isPathInsideFolder("Projects", null), false);
 });
+
+test("unspecified folderPath defaults to vault root empty string", () => {
+  assert.equal(normalizeState(null).folderPath, "");
+  assert.equal(normalizeState(undefined).folderPath, "");
+  assert.equal(normalizeState({}).folderPath, "");
+});
+
+test("getFolderSpaceTitle returns vault name for root and last segment for subfolders", () => {
+  const mockApp = {
+    vault: {
+      getName: () => "MyVault"
+    }
+  } as any;
+
+  assert.equal(getFolderSpaceTitle(mockApp, ""), "MyVault");
+  assert.equal(getFolderSpaceTitle(mockApp, null), "MyVault");
+  assert.equal(getFolderSpaceTitle(mockApp, undefined), "MyVault");
+  assert.equal(getFolderSpaceTitle(mockApp, "Projects"), "Projects");
+  assert.equal(getFolderSpaceTitle(mockApp, "Projects/Active"), "Active");
+});
+
