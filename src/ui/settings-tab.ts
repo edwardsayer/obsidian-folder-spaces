@@ -1,6 +1,7 @@
 import { App, Plugin, PluginSettingTab, Setting } from "obsidian";
 
 import { t } from "../i18n";
+import { presetLabel } from "../i18n";
 import {
   type FolderSpaceLocation,
   type FolderSpacesSettings,
@@ -8,6 +9,7 @@ import {
   resolveDepthMode,
   resolveContentMode
 } from "../settings";
+import { FOLDER_SPACE_PRESETS, resolvePresetId, type FolderSpacePresetId } from "../presets";
 
 export interface FolderSpacesSettingsController {
   settings: FolderSpacesSettings;
@@ -132,6 +134,63 @@ export class FolderSpacesSettingTab extends PluginSettingTab {
               defaultContentMode: resolveContentMode(value)
             });
           });
+      });
+
+    const presetPanel = containerEl.createDiv({ cls: "folder-spaces-options-panel" });
+    presetPanel
+      .createDiv({ cls: "folder-spaces-options-panel-title" })
+      .setText(t("settingsDefaultPresetName"));
+    presetPanel
+      .createDiv({ cls: "folder-spaces-options-panel-desc" })
+      .setText(t("settingsDefaultPresetDesc"));
+
+    const renderPresetDropdown = (
+      panel: HTMLElement,
+      name: string,
+      desc: string,
+      value: FolderSpacePresetId,
+      apply: (id: FolderSpacePresetId) => void
+    ): void => {
+      new Setting(panel).setName(name).setDesc(desc).addDropdown((dropdown) => {
+        for (const preset of FOLDER_SPACE_PRESETS) {
+          dropdown.addOption(preset.id, presetLabel(preset.id));
+        }
+        dropdown
+          .setValue(value)
+          .onChange(async (next) => apply(resolvePresetId(next, "contents")));
+      });
+    };
+
+    renderPresetDropdown(
+      presetPanel,
+      t("settingsDefaultPresetName"),
+      t("settingsDefaultPresetDesc"),
+      this.plugin.settings.defaultPreset,
+      (id) => {
+        void this.plugin.updateSettings({ ...this.plugin.settings, defaultPreset: id });
+      }
+    );
+
+    renderPresetDropdown(
+      presetPanel,
+      t("settingsDefaultChildPresetName"),
+      t("settingsDefaultChildPresetDesc"),
+      this.plugin.settings.defaultChildPreset,
+      (id) => {
+        void this.plugin.updateSettings({ ...this.plugin.settings, defaultChildPreset: id });
+      }
+    );
+
+    new Setting(presetPanel)
+      .setName(t("settingsAutoApplyChildPresetName"))
+      .setDesc(t("settingsAutoApplyChildPresetDesc"))
+      .addToggle((toggle) => {
+        toggle.setValue(this.plugin.settings.autoApplyChildPreset).onChange(async (value) => {
+          await this.plugin.updateSettings({
+            ...this.plugin.settings,
+            autoApplyChildPreset: value
+          });
+        });
       });
 
     new Setting(containerEl)

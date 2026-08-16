@@ -17,6 +17,7 @@
     "src/api.ts",
     "src/i18n.ts",
     "src/settings.ts",
+    "src/presets.ts",
     "tests/**/*.ts"
   ]
 }

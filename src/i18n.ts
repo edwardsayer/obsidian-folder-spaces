@@ -1,3 +1,5 @@
+import type { FolderSpacePresetId } from "./presets.js";
+
 type LocaleKey =
   | "menuFolderSpaces"
   | "menuFolderSpacesLeftSidebar"
@@ -51,7 +53,20 @@ type LocaleKey =
   | "depthModeAllLevel"
   | "contentModeFolders"
   | "contentModeFiles"
-  | "contentModeAll";
+  | "contentModeAll"
+  | "settingsDefaultPresetName"
+  | "settingsDefaultPresetDesc"
+  | "settingsDefaultChildPresetName"
+  | "settingsDefaultChildPresetDesc"
+  | "settingsAutoApplyChildPresetName"
+  | "settingsAutoApplyChildPresetDesc"
+  | "presetNavigate"
+  | "presetColumns"
+  | "presetContents"
+  | "presetFiles"
+  | "presetContext"
+  | "presetCustom"
+  | "presetSection";
 
 type LocaleTable = Record<LocaleKey, string>;
 
@@ -109,7 +124,20 @@ const ENGLISH: LocaleTable = {
   depthModeAllLevel: "All levels",
   contentModeFolders: "Folders",
   contentModeFiles: "Files",
-  contentModeAll: "All"
+  contentModeAll: "All",
+  settingsDefaultPresetName: "Default view preset",
+  settingsDefaultPresetDesc: "Preset applied to new Folder Space panels.",
+  settingsDefaultChildPresetName: "Default child panel preset",
+  settingsDefaultChildPresetDesc: "Preset applied to new child panels opened from a parent panel.",
+  settingsAutoApplyChildPresetName: "Auto-apply child panel preset",
+  settingsAutoApplyChildPresetDesc: "Apply the child preset to panels opened from a parent panel.",
+  presetNavigate: "Preset: Navigate",
+  presetColumns: "Preset: Columns",
+  presetContents: "Preset: Contents",
+  presetFiles: "Preset: Files",
+  presetContext: "Preset: Context",
+  presetCustom: "Custom",
+  presetSection: "Preset"
 };
 
 const TRADITIONAL_CHINESE: LocaleTable = {
@@ -166,7 +194,20 @@ const TRADITIONAL_CHINESE: LocaleTable = {
   depthModeAllLevel: "所有層級",
   contentModeFolders: "資料夾",
   contentModeFiles: "檔案",
-  contentModeAll: "全部"
+  contentModeAll: "全部",
+  settingsDefaultPresetName: "預設檢視預設集",
+  settingsDefaultPresetDesc: "套用於新開啟的 Folder Space 面板的預設集。",
+  settingsDefaultChildPresetName: "預設子面板檢視預設集",
+  settingsDefaultChildPresetDesc: "由父面板開啟新子面板時套用的檢視預設集。",
+  settingsAutoApplyChildPresetName: "自動套用子面板預設集",
+  settingsAutoApplyChildPresetDesc: "從父面板開啟的子面板自動套用子面板預設集。",
+  presetNavigate: "預設集：導覽",
+  presetColumns: "預設集：欄位",
+  presetContents: "預設集：內容",
+  presetFiles: "預設集：檔案",
+  presetContext: "預設集：脈絡",
+  presetCustom: "自訂",
+  presetSection: "檢視預設集"
 };
 
 const SIMPLIFIED_CHINESE: LocaleTable = {
@@ -223,7 +264,20 @@ const SIMPLIFIED_CHINESE: LocaleTable = {
   depthModeAllLevel: "所有层级",
   contentModeFolders: "文件夹",
   contentModeFiles: "文件",
-  contentModeAll: "全部"
+  contentModeAll: "全部",
+  settingsDefaultPresetName: "默认视图预设",
+  settingsDefaultPresetDesc: "应用于新打开的 Folder Space 面板的预设。",
+  settingsDefaultChildPresetName: "默认子面板视图预设",
+  settingsDefaultChildPresetDesc: "从父面板打开新的子面板时应用的视图预设。",
+  settingsAutoApplyChildPresetName: "自动应用子面板预设",
+  settingsAutoApplyChildPresetDesc: "从父面板打开的子面板自动应用子面板预设。",
+  presetNavigate: "预设：导航",
+  presetColumns: "预设：栏目",
+  presetContents: "预设：内容",
+  presetFiles: "预设：文件",
+  presetContext: "预设：脉络",
+  presetCustom: "自定义",
+  presetSection: "视图预设"
 };
 
 function safeGetLanguage(): string {
@@ -265,4 +319,17 @@ export function getTable(lang: string = safeGetLanguage()): LocaleTable {
 
 export function t(key: LocaleKey, lang?: string): string {
   return getTable(lang)[key];
+}
+
+const PRESET_NAME_KEYS: Record<FolderSpacePresetId, LocaleKey> = {
+  navigate: "presetNavigate",
+  columns: "presetColumns",
+  contents: "presetContents",
+  files: "presetFiles",
+  context: "presetContext"
+};
+
+/** 回傳 presets 的本地化名稱（型別安全的 key lookup）。 */
+export function presetLabel(id: FolderSpacePresetId, lang?: string): string {
+  return t(PRESET_NAME_KEYS[id], lang);
 }

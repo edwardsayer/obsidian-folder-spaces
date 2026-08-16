@@ -65,6 +65,7 @@ import {
   type FolderSpaceContentMode,
   type FolderSpacesSettings
 } from "./settings.js";
+import { getPreset, presetToState } from "./presets.js";
 import { FolderSpacesSettingTab } from "./ui/settings-tab.js";
 
 type FolderSpaceLocation = "left-sidebar" | "right-sidebar" | "editor" | "window";
@@ -401,6 +402,20 @@ export default class FolderSpacesPlugin extends Plugin {
     };
   }
 
+  /**
+   * 新 leaf 的初始檢視預設集：由父面板開啟的子面板套用 defaultChildPreset
+   * （autoApplyChildPreset 關閉時回退 defaultPreset），其餘新面板套用 defaultPreset。
+   * 只寫入初始 view state；若該 folder 已存有 per-folder 模式，setState 會以
+   * 已存模式為主（尊重使用者既有設定，不覆寫）。
+   */
+  private getInitialPresetModes(
+    parentPanelId?: string | null
+  ): { viewMode: FolderSpaceViewMode; depthMode: FolderSpaceDepthMode; contentMode: FolderSpaceContentMode } | null {
+    const useChildPreset = Boolean(parentPanelId) && this.settings.autoApplyChildPreset;
+    const preset = getPreset(useChildPreset ? this.settings.defaultChildPreset : this.settings.defaultPreset);
+    return preset ? presetToState(preset) : null;
+  }
+
   private async openFolderSpace(
     folder: TFolder,
     location: FolderSpaceLocation,
@@ -432,12 +447,14 @@ export default class FolderSpacesPlugin extends Plugin {
     makeNavigable(leaf);
 
     if (leaf.getViewState().type !== FOLDER_SPACES_VIEW_TYPE) {
+      const initialPreset = this.getInitialPresetModes(parentPanelId);
       await leaf.setViewState({
         type: FOLDER_SPACES_VIEW_TYPE,
         active: true,
         state: {
           folderPath: folder.path,
-          followParent: getDefaultFollowParent(this.settings, false)
+          followParent: getDefaultFollowParent(this.settings, false),
+          ...(initialPreset ?? {})
         }
       });
     }
@@ -489,12 +506,14 @@ export default class FolderSpacesPlugin extends Plugin {
 
     const folderSpaceLeaf = await this.popoutLayout.openPanel(win, location, FOLDER_SPACES_VIEW_TYPE);
     makeNavigable(folderSpaceLeaf);
+    const initialPresetWindow = this.getInitialPresetModes(parentPanelId);
     await folderSpaceLeaf.setViewState({
       type: FOLDER_SPACES_VIEW_TYPE,
       active: true,
       state: {
         folderPath: folder.path,
-        followParent: getDefaultFollowParent(this.settings, true)
+        followParent: getDefaultFollowParent(this.settings, true),
+        ...(initialPresetWindow ?? {})
       }
     });
     makeNavigable(folderSpaceLeaf.view);
@@ -598,12 +617,14 @@ export default class FolderSpacesPlugin extends Plugin {
     }
 
     makeNavigable(leaf);
+    const initialPresetPopout = this.getInitialPresetModes(parentPanelId);
     await leaf.setViewState({
       type: FOLDER_SPACES_VIEW_TYPE,
       active: true,
       state: {
         folderPath: folder.path,
-        followParent: getDefaultFollowParent(this.settings, false)
+        followParent: getDefaultFollowParent(this.settings, false),
+        ...(initialPresetPopout ?? {})
       }
     });
     makeNavigable(leaf.view);

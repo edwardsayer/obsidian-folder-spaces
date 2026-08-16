@@ -35,13 +35,19 @@ import {
   isElementVisible
 } from "./tree-navigation-helpers.js";
 export { isElementVisible };
-import { t } from "./i18n.js";
+import { presetLabel, t } from "./i18n.js";
 import { PanelActivityTracker } from "./panel-activity-tracker.js";
 import { IconPickerModal } from "./ui/icon-picker-modal.js";
 import {
   chooseFolderSpaceCreationTarget,
   type FolderSpaceCreationCandidate
 } from "./folder-space-routing-policy.js";
+import {
+  FOLDER_SPACE_PRESETS,
+  matchPreset,
+  presetToState,
+  type FolderSpacePreset
+} from "./presets.js";
 import { getWindowOfLeaf, isPopoutWindow } from "./shared/popoutLayout.js";
 import type { PopoutLayoutEngine } from "./shared/popoutLayout.js";
 import {
@@ -1285,6 +1291,28 @@ function expandAllFolders(view: PatchedExplorerView, folder: TFolder): void {
 function showViewSettingsDropdown(view: PatchedExplorerView, anchorEl: HTMLElement): void {
   const menu = new Menu();
 
+  // 檢視預設集（順序：導覽 / 欄位 / 內容 / 檔案 / 脈絡）——把三維模式包裝成
+  // 針對父子連動角色設計的組合；無匹配時顯示「自訂」。
+  menu.addItem((item) => {
+    item.setTitle(t("presetSection"));
+    item.setDisabled(true);
+  });
+  for (const preset of FOLDER_SPACE_PRESETS) {
+    menu.addItem((item) => {
+      item.setTitle(presetLabel(preset.id));
+      item.setChecked(matchPreset(view.viewMode, view.depthMode, view.contentMode) === preset.id);
+      item.onClick(() => applyFolderSpacePreset(view, preset));
+    });
+  }
+  if (matchPreset(view.viewMode, view.depthMode, view.contentMode) === null) {
+    menu.addItem((item) => {
+      item.setTitle(t("presetCustom"));
+      item.setDisabled(true);
+    });
+  }
+
+  menu.addSeparator();
+
   menu.addItem((item) => {
     item.setTitle("Style: Tree view");
     item.setChecked(view.viewMode === "tree");
@@ -1353,6 +1381,17 @@ function showViewSettingsDropdown(view: PatchedExplorerView, anchorEl: HTMLEleme
     const rect = anchorEl.getBoundingClientRect();
     menu.showAtPosition({ x: rect.left, y: rect.bottom + 4 }, menuDocument);
   }, 0);
+}
+
+/**
+ * 套用檢視預設集：把 (viewMode, depthMode, contentMode) 寫入目前 view 並
+ * 持久化到該 folder 的 per-folder 記錄（files→flat 由 presetToState 確保一致）。
+ */
+export function applyFolderSpacePreset(view: PatchedExplorerView, preset: FolderSpacePreset): void {
+  const state = presetToState(preset);
+  setViewMode(view, state.viewMode);
+  setDepthMode(view, state.depthMode);
+  setContentMode(view, state.contentMode);
 }
 
 /**

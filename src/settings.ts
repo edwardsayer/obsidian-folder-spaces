@@ -1,4 +1,6 @@
 import type { FolderSpaceViewMode, FolderSpaceDepthMode, FolderSpaceContentMode } from "./compatibility-helpers.js";
+import type { FolderSpacePresetId } from "./presets.js";
+import { resolvePresetId } from "./presets.js";
 export type { FolderSpaceViewMode, FolderSpaceDepthMode, FolderSpaceContentMode };
 
 export type FolderSpaceLocation = "left-sidebar" | "right-sidebar" | "editor" | "window";
@@ -23,6 +25,9 @@ export interface FolderSpacesSettings {
   showRibbonIcon: boolean;
   defaultFollowParentSameWindow: boolean;
   defaultFollowParentNewWindow: boolean;
+  defaultPreset: FolderSpacePresetId;
+  defaultChildPreset: FolderSpacePresetId;
+  autoApplyChildPreset: boolean;
 }
 
 export const DEFAULT_SETTINGS: FolderSpacesSettings = {
@@ -37,7 +42,10 @@ export const DEFAULT_SETTINGS: FolderSpacesSettings = {
   folderContentModes: {},
   showRibbonIcon: true,
   defaultFollowParentSameWindow: true,
-  defaultFollowParentNewWindow: false
+  defaultFollowParentNewWindow: false,
+  defaultPreset: "contents",
+  defaultChildPreset: "contents",
+  autoApplyChildPreset: true
 };
 
 export function normalizeSettings(data: unknown): FolderSpacesSettings {
@@ -60,7 +68,10 @@ export function normalizeSettings(data: unknown): FolderSpacesSettings {
     defaultFollowParentNewWindow: normalizeBoolean(
       settings.defaultFollowParentNewWindow,
       DEFAULT_SETTINGS.defaultFollowParentNewWindow
-    )
+    ),
+    defaultPreset: resolvePresetId(settings.defaultPreset, DEFAULT_SETTINGS.defaultPreset),
+    defaultChildPreset: resolvePresetId(settings.defaultChildPreset, DEFAULT_SETTINGS.defaultChildPreset),
+    autoApplyChildPreset: normalizeBoolean(settings.autoApplyChildPreset, DEFAULT_SETTINGS.autoApplyChildPreset)
   };
 }
 

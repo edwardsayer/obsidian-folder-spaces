@@ -206,3 +206,29 @@ test("normalizeSettings defaults and normalizes depth and content modes", () => 
   assert.equal("Projects/Archive" in custom.folderContentModes, false);
   assert.equal("" in custom.folderContentModes, false);
 });
+
+test("normalizeSettings defaults and normalizes view presets", () => {
+  const defaults = normalizeSettings({});
+  assert.equal(defaults.defaultPreset, "contents");
+  assert.equal(defaults.defaultChildPreset, "contents");
+  assert.equal(defaults.autoApplyChildPreset, true);
+
+  const custom = normalizeSettings({
+    defaultPreset: "navigate",
+    defaultChildPreset: "context",
+    autoApplyChildPreset: false,
+    defaultPresetBogus: "whatever"
+  });
+  assert.equal(custom.defaultPreset, "navigate");
+  assert.equal(custom.defaultChildPreset, "context");
+  assert.equal(custom.autoApplyChildPreset, false);
+
+  const invalid = normalizeSettings({
+    defaultPreset: "bogus",
+    defaultChildPreset: "bogus",
+    autoApplyChildPreset: "yes"
+  });
+  assert.equal(invalid.defaultPreset, "contents");
+  assert.equal(invalid.defaultChildPreset, "contents");
+  assert.equal(invalid.autoApplyChildPreset, true);
+});
