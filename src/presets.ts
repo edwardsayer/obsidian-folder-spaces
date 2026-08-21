@@ -8,18 +8,17 @@ import type {
  * Folder Space 「檢視預設集」：把 (viewMode, depthMode, contentMode) 三個維度
  * 包裝成易於理解的組合，特別針對父子 panel 連動（cascade）下的角色分工：
  *
+ * - explorer（檔案總管）：標準樹狀總管（tree / all / all）——獨立面板最常見預設。
  * - navigate（導覽）：純資料夾樹（tree / all / folders）——父側 Navigator。
- * - columns（欄位）：只列直屬子資料夾（tree / 1 level / folders）——Finder 欄位式
- *   Navigator；在連動鏈中逐層往下傳（depth=1 時資料夾子項目被隱藏，因此 standalone
- *   無法自行下鑽，需配合 follow child）。
+ * - columns（欄位）：只列直屬子資料夾（tree / 1 level / folders）——Finder 欄位式 Navigator。
+ * - context（脈絡）：受限 2 層資料夾樹（tree / 2 levels / folders）——中間 Bridge 面板。
  * - contents（內容）：扁平全覽（flat / all / all）——終端 child 的現有 flat 群組式總覽。
  * - files（檔案）：遞迴全部檔案清單（flat / all / files）——終端 child，自動 flat。
- * - context（脈絡）：受限 2 層的樹狀脈絡（tree / 2 levels / all）——中間 child。
  *
- * flat 模式下 depth 被忽略（「扁平」一律全層），故比對/套用時對 flat preset 不看 depth。
+ * DepthMode 在 Tree 與 Flat 模式下皆完整生效（Flat 模式依 depthLimit 限制遞迴收集群組的深度）。
  */
 
-export type FolderSpacePresetId = "navigate" | "columns" | "contents" | "files" | "context";
+export type FolderSpacePresetId = "explorer" | "navigate" | "columns" | "context" | "contents" | "files";
 
 export interface FolderSpacePreset {
   id: FolderSpacePresetId;
@@ -28,13 +27,14 @@ export interface FolderSpacePreset {
   contentMode: FolderSpaceContentMode;
 }
 
-/** UI 顯示順序（context 依需求排最後）。 */
+/** UI 顯示順序。 */
 export const FOLDER_SPACE_PRESETS: readonly FolderSpacePreset[] = [
+  { id: "explorer", viewMode: "tree", depthMode: "all-level", contentMode: "all" },
   { id: "navigate", viewMode: "tree", depthMode: "all-level", contentMode: "folders" },
   { id: "columns", viewMode: "tree", depthMode: "one-level", contentMode: "folders" },
+  { id: "context", viewMode: "tree", depthMode: "two-level", contentMode: "folders" },
   { id: "contents", viewMode: "flat", depthMode: "all-level", contentMode: "all" },
-  { id: "files", viewMode: "flat", depthMode: "all-level", contentMode: "files" },
-  { id: "context", viewMode: "tree", depthMode: "two-level", contentMode: "all" }
+  { id: "files", viewMode: "flat", depthMode: "all-level", contentMode: "files" }
 ];
 
 export function getPreset(id: unknown): FolderSpacePreset | null {
@@ -53,11 +53,11 @@ export function matchPreset(
   contentMode: FolderSpaceContentMode
 ): FolderSpacePresetId | null {
   for (const preset of FOLDER_SPACE_PRESETS) {
-    const matches =
-      preset.viewMode === "flat"
-        ? viewMode === "flat" && contentMode === preset.contentMode
-        : viewMode === preset.viewMode && depthMode === preset.depthMode && contentMode === preset.contentMode;
-    if (matches) {
+    if (
+      viewMode === preset.viewMode &&
+      depthMode === preset.depthMode &&
+      contentMode === preset.contentMode
+    ) {
       return preset.id;
     }
   }

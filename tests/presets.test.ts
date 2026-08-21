@@ -9,10 +9,10 @@ import {
   resolvePresetId
 } from "../src/presets.js";
 
-test("preset list is ordered with context last", () => {
+test("preset list is ordered as expected with explorer first", () => {
   assert.deepEqual(
     FOLDER_SPACE_PRESETS.map((p) => p.id),
-    ["navigate", "columns", "contents", "files", "context"]
+    ["explorer", "navigate", "columns", "context", "contents", "files"]
   );
 });
 
@@ -25,25 +25,23 @@ test("each preset maps to a distinct (view, depth, content) tuple", () => {
   }
 });
 
-test("matchPreset identifies the preset from current modes", () => {
+test("matchPreset identifies the preset from exact (view, depth, content) modes", () => {
+  assert.equal(matchPreset("tree", "all-level", "all"), "explorer");
   assert.equal(matchPreset("tree", "all-level", "folders"), "navigate");
   assert.equal(matchPreset("tree", "one-level", "folders"), "columns");
+  assert.equal(matchPreset("tree", "two-level", "folders"), "context");
   assert.equal(matchPreset("flat", "all-level", "all"), "contents");
-  assert.equal(matchPreset("flat", "two-level", "files"), "files"); // flat 看 content，depth 忽略
-  assert.equal(matchPreset("tree", "two-level", "all"), "context");
+  assert.equal(matchPreset("flat", "all-level", "files"), "files");
 });
 
-test("matchPreset ignores depth for flat presets", () => {
-  // flat 下 depth 被忽略：「內容」preset (flat/all) 無論 depth 都匹配
-  assert.equal(matchPreset("flat", "all-level", "all"), "contents");
-  assert.equal(matchPreset("flat", "one-level", "all"), "contents");
-  assert.equal(matchPreset("flat", "two-level", "files"), "files");
-});
-
-test("matchPreset returns null for unsaved/custom combinations", () => {
-  assert.equal(matchPreset("tree", "all-level", "all"), null); // tree/all/all 非預設組合
-  assert.equal(matchPreset("flat", "all-level", "folders"), null); // folders-only flat 非 preset
+test("matchPreset returns null for custom depth in flat mode or custom combinations", () => {
+  // Flat 模式下 depth 亦生效，非 all-level 的 flat 組合屬自訂模式
+  assert.equal(matchPreset("flat", "one-level", "all"), null);
+  assert.equal(matchPreset("flat", "two-level", "all"), null);
+  assert.equal(matchPreset("flat", "two-level", "files"), null);
+  assert.equal(matchPreset("flat", "all-level", "folders"), null);
   assert.equal(matchPreset("tree", "one-level", "all"), null);
+  assert.equal(matchPreset("tree", "two-level", "all"), null);
 });
 
 test("presetToState forces flat for files content", () => {
@@ -51,11 +49,15 @@ test("presetToState forces flat for files content", () => {
   assert.equal(files.contentMode, "files");
   assert.equal(presetToState(files).viewMode, "flat");
 
+  const explorer = getPreset("explorer")!;
+  assert.equal(presetToState(explorer).viewMode, "tree");
+
   const navigate = getPreset("navigate")!;
   assert.equal(presetToState(navigate).viewMode, "tree");
 });
 
 test("getPreset / resolvePresetId validate the id", () => {
+  assert.equal(getPreset("explorer")?.id, "explorer");
   assert.equal(getPreset("navigate")?.id, "navigate");
   assert.equal(getPreset("bogus"), null);
   assert.equal(resolvePresetId("bogus", "contents"), "contents");

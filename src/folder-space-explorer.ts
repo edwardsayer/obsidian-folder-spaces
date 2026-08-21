@@ -44,9 +44,11 @@ import {
 } from "./folder-space-routing-policy.js";
 import {
   FOLDER_SPACE_PRESETS,
+  getPreset,
   matchPreset,
   presetToState,
-  type FolderSpacePreset
+  type FolderSpacePreset,
+  type FolderSpacePresetId
 } from "./presets.js";
 import {
   compareSortableItems,
@@ -92,6 +94,9 @@ export interface FolderSpaceViewOptions {
   bindingManager?: PanelBindingManager;
   onContextMenuOpen?(leaf: WorkspaceLeaf): void;
   popoutLayoutEngine?: PopoutLayoutEngine;
+  getAdaptiveCascadeParent?(): boolean;
+  getCascadeParentPreset?(): FolderSpacePresetId;
+  getDisableFolderNotesInFolderOnlyView?(): boolean;
 }
 
 interface InternalTreeItem {
@@ -219,8 +224,23 @@ interface PatchedExplorerView extends InternalExplorerView {
   setFolderPath(path: string | null, options?: FolderPathChangeOptions): void;
   isAlive(): boolean;
   onBindingChanged(): void;
+  savedStandalonePresetModes?: {
+    viewMode: FolderSpaceViewMode;
+    depthMode: FolderSpaceDepthMode;
+    contentMode: FolderSpaceContentMode;
+  } | null;
+  isAdaptiveParentActive?: boolean;
   openSearchInWindow?: (win: Window, query: string) => Promise<WorkspaceLeaf>;
   addAction?(icon: string, title: string, callback: (evt: MouseEvent) => unknown): HTMLElement | null;
+  getDisableFolderNotesInFolderOnlyView(): boolean;
+  drillDownStack?: DrillDownStackEntry[];
+}
+
+export interface DrillDownStackEntry {
+  folderPath: string | null;
+  viewMode: FolderSpaceViewMode;
+  depthMode: FolderSpaceDepthMode;
+  contentMode: FolderSpaceContentMode;
 }
 
 interface FlatItemLabelState {
@@ -574,6 +594,7 @@ function patchExplorerView(
   view.onBindingChanged = () => {
     refreshChildBindingUI(view);
     refreshSyncFocusMarker(view);
+    handleAdaptiveCascadeParent(view, options);
   };
   view.addAction = (icon: string, title: string, callback: (evt: MouseEvent) => unknown) =>
     addFolderSpaceAction(view, icon, title, callback);
@@ -598,6 +619,7 @@ function patchExplorerView(
     options.setFolderSortOrder?.(folderPath, order);
   view.setFolderIcon = (folderPath: string, icon: string) => options.setFolderIcon?.(folderPath, icon);
   view.openSearchInWindow = options.openSearchInWindow;
+  view.getDisableFolderNotesInFolderOnlyView = () => options.getDisableFolderNotesInFolderOnlyView?.() ?? true;
   view.getViewType = () => FOLDER_SPACES_VIEW_TYPE;
   view.getIcon = () => getFolderSpaceIcon(options, view.folderPath);
 
@@ -717,6 +739,7 @@ function patchExplorerView(
     registerFlatRenameEditorOverride(view);
     registerTreeNavigationOverride(view);
     registerParentScopeFollowOverride(view);
+    registerLongPressDrillDown(view);
     refreshFolderPresentation(view, false);
     view.onBindingChanged();
     scheduleFlatRefresh(view);
@@ -1040,10 +1063,16 @@ function initializeEmptyState(view: PatchedExplorerView): void {
     }
   });
 
-  // Status Icon Button -> bound 時切換 follow；未 bound 時為純顯示的 folder icon。
+  // Status Icon Button -> bound 時切換 follow；下鑽時為返回鍵；未 bound 且未下鑽時為純顯示的 folder icon。
   view.registerDomEvent(statusIcon, "click", (event: MouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
+
+    if (view.drillDownStack && view.drillDownStack.length > 0) {
+      drillDownGoBack(view);
+      return;
+    }
+
     if (!view.parentPanelId) {
       return;
     }
@@ -1066,6 +1095,7 @@ function initializeEmptyState(view: PatchedExplorerView): void {
   view.viewMode = "tree";
   view.depthMode = "all-level";
   view.contentMode = "all";
+  view.drillDownStack = [];
   view.flatItemParents = new Map();
   view.flatItemLabels = new Map();
   view.flatRenameEditors = new WeakSet();
@@ -1347,11 +1377,84 @@ function setContentMode(view: PatchedExplorerView, mode: FolderSpaceContentMode)
   void view.app.workspace.requestSaveLayout();
 }
 
+/**
+ * 終端資料夾就地縮放/下鑽 (In-place Grid & Folder Re-scoping)：
+ * 將當前面板暫時 drill-down 至該資料夾作為 root path，並保存歷史堆疊與檢視設定。
+ */
+export function drillDownToFolder(view: PatchedExplorerView, targetFolderPath: string): void {
+  if (targetFolderPath === view.folderPath) {
+    return;
+  }
+
+  if (!view.drillDownStack) {
+    view.drillDownStack = [];
+  }
+
+  view.drillDownStack.push({
+    folderPath: view.folderPath,
+    viewMode: view.viewMode,
+    depthMode: view.depthMode,
+    contentMode: view.contentMode
+  });
+
+  const targetViewMode = resolveFolderViewMode(view, targetFolderPath);
+  const targetDepthMode = resolveFolderDepthMode(view, targetFolderPath);
+  const targetContentMode = resolveFolderContentMode(view, targetFolderPath);
+
+  view.folderPath = targetFolderPath;
+  view.viewMode = targetViewMode;
+  view.depthMode = targetDepthMode;
+  view.contentMode = targetContentMode;
+  if (view.contentMode === "files") {
+    view.viewMode = "flat";
+  }
+
+  refreshFolderPresentation(view, true);
+  scheduleFlatRefresh(view);
+  refreshLeafHeader(view);
+  updateFollowParentButton(view);
+  updateSortButtonIcon(view);
+  view.requestSort();
+}
+
+/** 返回上一層下鑽路徑；若已回到頂層則還原原本 status icon。 */
+export function drillDownGoBack(view: PatchedExplorerView): void {
+  if (!view.drillDownStack || view.drillDownStack.length === 0) {
+    return;
+  }
+
+  const prev = view.drillDownStack.pop();
+  if (!prev) {
+    return;
+  }
+
+  view.folderPath = prev.folderPath;
+  view.viewMode = prev.viewMode;
+  view.depthMode = prev.depthMode;
+  view.contentMode = prev.contentMode;
+  if (view.contentMode === "files") {
+    view.viewMode = "flat";
+  }
+
+  refreshFolderPresentation(view, Boolean(view.folderPath));
+  scheduleFlatRefresh(view);
+  refreshLeafHeader(view);
+  updateFollowParentButton(view);
+  updateSortButtonIcon(view);
+  view.requestSort();
+}
+
 function setFolderPath(
   view: PatchedExplorerView,
   folderPath: string | null,
   changeOptions?: FolderPathChangeOptions
 ): void {
+  // 若原本處於下鑽狀態，當父 panel 切換 folder 或外部指定新 root 時，取消下鑽狀態並回到連結狀態
+  if (view.drillDownStack && view.drillDownStack.length > 0) {
+    view.drillDownStack = [];
+    updateFollowParentButton(view);
+  }
+
   const state = { ...view.getState(), folderPath } as Record<string, unknown>;
   if (!changeOptions?.preserveViewSettings) {
     delete state.viewMode;
@@ -1633,6 +1736,14 @@ function showViewSettingsDropdown(view: PatchedExplorerView, anchorEl: HTMLEleme
     item.onClick(() => setContentMode(view, "all"));
   });
 
+  menu.addSeparator();
+
+  menu.addItem((item) => {
+    item.setTitle(t("actionOpenSettings"));
+    item.setIcon("lucide-settings");
+    item.onClick(() => openPluginSettings(view.app));
+  });
+
   const menuDocument = anchorEl.ownerDocument;
   const menuWindow = menuDocument.defaultView;
   if (!menuWindow) {
@@ -1651,6 +1762,17 @@ function showViewSettingsDropdown(view: PatchedExplorerView, anchorEl: HTMLEleme
   }, 0);
 }
 
+function openPluginSettings(app: App): void {
+  const appWithSetting = app as unknown as {
+    setting?: {
+      open?: () => void;
+      openTabById?: (id: string) => void;
+    };
+  };
+  appWithSetting.setting?.open?.();
+  appWithSetting.setting?.openTabById?.("folder-spaces");
+}
+
 /**
  * 套用檢視預設集：把 (viewMode, depthMode, contentMode) 寫入目前 view 並
  * 持久化到該 folder 的 per-folder 記錄（files→flat 由 presetToState 確保一致）。
@@ -1660,6 +1782,43 @@ export function applyFolderSpacePreset(view: PatchedExplorerView, preset: Folder
   setViewMode(view, state.viewMode);
   setDepthMode(view, state.depthMode);
   setContentMode(view, state.contentMode);
+}
+
+/**
+ * 接龍自適應父面板模式：當面板擁有子面板時，自動備份當前獨立模式並切換為
+ * 導覽預設集（純目錄導覽）；當子面板解除綁定或關閉時，自動還原備份的模式。
+ */
+export function handleAdaptiveCascadeParent(
+  view: PatchedExplorerView,
+  options: FolderSpaceViewOptions
+): void {
+  if (!options.getAdaptiveCascadeParent?.()) {
+    return;
+  }
+  const hasChild = Boolean(view.bindingManager?.hasChild(view.panelId));
+  if (hasChild) {
+    if (!view.isAdaptiveParentActive) {
+      view.savedStandalonePresetModes = {
+        viewMode: view.viewMode,
+        depthMode: view.depthMode,
+        contentMode: view.contentMode
+      };
+      const presetId = options.getCascadeParentPreset?.() ?? "navigate";
+      const preset = getPreset(presetId) ?? getPreset("navigate");
+      if (preset) {
+        applyFolderSpacePreset(view, preset);
+        view.isAdaptiveParentActive = true;
+      }
+    }
+  } else if (view.isAdaptiveParentActive) {
+    if (view.savedStandalonePresetModes) {
+      setViewMode(view, view.savedStandalonePresetModes.viewMode);
+      setDepthMode(view, view.savedStandalonePresetModes.depthMode);
+      setContentMode(view, view.savedStandalonePresetModes.contentMode);
+    }
+    view.isAdaptiveParentActive = false;
+    view.savedStandalonePresetModes = null;
+  }
 }
 
 /**
@@ -1814,6 +1973,23 @@ function updateFollowParentButton(view: PatchedExplorerView): void {
   if (!button) {
     return;
   }
+
+  if (view.drillDownStack && view.drillDownStack.length > 0) {
+    // 下鑽就地縮放模式：返回按鈕取代原本最左邊的 icon
+    const label = t("actionGoUp");
+    button.toggle(true);
+    button.toggleClass("is-static", false);
+    button.toggleClass("is-active", false);
+    button.toggleClass("folder-spaces-back-btn", true);
+    button.removeAttribute("aria-pressed");
+    button.setAttr("aria-label", label);
+    button.setAttr("data-tooltip", label);
+    button.empty();
+    setIcon(button, "lucide-arrow-left");
+    return;
+  }
+
+  button.toggleClass("folder-spaces-back-btn", false);
 
   if (view.parentPanelId) {
     // 有父面板 binding → link icon，點擊可切換 follow
@@ -2011,6 +2187,8 @@ function registerFileOpenOverride(view: PatchedExplorerView): void {
  * the parent and never drives the child; modifier clicks and clicks outside
  * this panel's tree keep their native behavior.
  */
+let lastLongPressTriggeredTime = 0;
+
 function registerParentScopeFollowOverride(view: PatchedExplorerView): void {
   const win = view.containerEl.ownerDocument.defaultView;
   if (!win) {
@@ -2031,44 +2209,114 @@ function registerParentScopeFollowOverride(view: PatchedExplorerView): void {
 }
 
 function followParentScopeOnFolderClick(view: PatchedExplorerView, event: MouseEvent): void {
-  const manager = view.bindingManager;
-  if (!manager) {
-    return;
-  }
-
-  const child = manager.getChildOf(view.panelId);
-  if (!child || !child.followParent) {
+  if (Date.now() - lastLongPressTriggeredTime < 300) {
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
     return;
   }
 
   const folderPath = resolveClickedFolderPath(view.navFileContainerEl, view.files, event);
-  if (folderPath) {
+  if (!folderPath) {
+    return;
+  }
+
+  const manager = view.bindingManager;
+  const child = manager?.getChildOf(view.panelId);
+  const hasFollowingChild = Boolean(child && child.isAlive() && child.followParent);
+
+  if (hasFollowingChild && manager) {
     manager.propagateFrom(view.panelId, folderPath);
+  } else {
+    // 獨立面板（Standalone）或無子面板連動時：點擊資料夾名稱就地下鑽
+    drillDownToFolder(view, folderPath);
+  }
+
+  if (
+    (view.contentMode === "folders" || !hasFollowingChild) &&
+    view.getDisableFolderNotesInFolderOnlyView() &&
+    !Keymap.isModEvent(event)
+  ) {
+    event.stopImmediatePropagation();
   }
 }
 
 /**
  * Consumes a folder-name click at the tree container so the parent's own tree
- * does not collapse/expand while it navigates a bound child. This listener
- * lives on the container in the capture phase: it only fires when no earlier
- * document-level interceptor (e.g. the Folder Notes plugin) already handled
- * the click, so it never blocks plugins that open a folder note.
+ * does not collapse/expand while it navigates a bound child or drills down.
  */
 function blockParentToggleOnFolderNameClick(view: PatchedExplorerView, event: MouseEvent): void {
-  const manager = view.bindingManager;
-  if (!manager) {
-    return;
-  }
-
-  const child = manager.getChildOf(view.panelId);
-  if (!child || !child.followParent) {
-    return;
-  }
-
   if (resolveClickedFolderPath(view.navFileContainerEl, view.files, event)) {
     event.preventDefault();
     event.stopPropagation();
   }
+}
+
+/**
+ * 當有連動子面板時，允許透過 long press (長按 450ms) 在父面板上就地下鑽該資料夾。
+ */
+function registerLongPressDrillDown(view: PatchedExplorerView): void {
+  let timer: number | null = null;
+  let startX = 0;
+  let startY = 0;
+  let targetPath: string | null = null;
+
+  const clearTimer = () => {
+    if (timer !== null) {
+      window.clearTimeout(timer);
+      timer = null;
+    }
+  };
+
+  view.registerDomEvent(view.navFileContainerEl, "pointerdown", (event: PointerEvent) => {
+    if (event.button !== 0 || Keymap.isModEvent(event)) {
+      clearTimer();
+      return;
+    }
+
+    const folderPath = resolveClickedFolderPath(view.navFileContainerEl, view.files, event as unknown as MouseEvent);
+    if (!folderPath) {
+      clearTimer();
+      return;
+    }
+
+    const manager = view.bindingManager;
+    const child = manager?.getChildOf(view.panelId);
+    const hasFollowingChild = Boolean(child && child.isAlive() && child.followParent);
+
+    // 只有在有連動子面板時才需要啟動 long press 計時（無子面板時直接普通點擊即可下鑽）
+    if (!hasFollowingChild) {
+      clearTimer();
+      return;
+    }
+
+    clearTimer();
+    startX = event.clientX;
+    startY = event.clientY;
+    targetPath = folderPath;
+
+    timer = window.setTimeout(() => {
+      timer = null;
+      if (targetPath) {
+        lastLongPressTriggeredTime = Date.now();
+        drillDownToFolder(view, targetPath);
+      }
+    }, 450);
+  });
+
+  view.registerDomEvent(view.navFileContainerEl, "pointermove", (event: PointerEvent) => {
+    if (timer !== null && Math.hypot(event.clientX - startX, event.clientY - startY) > 8) {
+      clearTimer();
+    }
+  });
+
+  view.registerDomEvent(view.navFileContainerEl, "pointerup", () => {
+    clearTimer();
+  });
+
+  view.registerDomEvent(view.navFileContainerEl, "pointercancel", () => {
+    clearTimer();
+  });
 }
 
 /**
@@ -2147,6 +2395,31 @@ export function registerTreeNavigationOverride(view: PatchedExplorerView): void 
       tree.setFocusedItem(target);
     }
   };
+
+  if (
+    typeof tree.setFocusedItem === "function" &&
+    !(tree as unknown as { _folderSpacesSetFocusedHooked?: boolean })._folderSpacesSetFocusedHooked
+  ) {
+    (tree as unknown as { _folderSpacesSetFocusedHooked?: boolean })._folderSpacesSetFocusedHooked = true;
+    const originalSetFocusedItem = tree.setFocusedItem.bind(tree);
+    const debouncedPropagate = debounce((path: string) => {
+      const manager = view.bindingManager;
+      if (!manager) {
+        return;
+      }
+      const child = manager.getChildOf(view.panelId);
+      if (child && child.followParent) {
+        manager.propagateFrom(view.panelId, path);
+      }
+    }, 30, true);
+
+    tree.setFocusedItem = function (item: InternalTreeItem | null, focus?: boolean) {
+      originalSetFocusedItem(item, focus);
+      if (item?.file instanceof TFolder && view.bindingManager?.hasChild(view.panelId)) {
+        debouncedPropagate(item.file.path);
+      }
+    };
+  }
 
   const treeNav = tree as unknown as {
     onKeyArrowLeft?: (event: KeyboardEvent) => void;

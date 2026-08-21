@@ -4,6 +4,7 @@ import {
   TAbstractFile,
   TFolder,
   View,
+  debounce,
   setIcon,
   type WorkspaceLeaf,
   type WorkspaceParent,
@@ -60,6 +61,8 @@ import {
   resolveViewMode,
   resolveDepthMode,
   resolveContentMode,
+  migrateFolderPathInSettings,
+  pruneFolderPathFromSettings,
   type FolderSpaceViewMode,
   type FolderSpaceDepthMode,
   type FolderSpaceContentMode,
@@ -155,7 +158,10 @@ export default class FolderSpacesPlugin extends Plugin {
           openSearchInWindow: (win, query) => this.openSearchInWindow(win, query),
           onContextMenuOpen: (sourceLeaf) => {
             this.activeContextSourceLeaf = sourceLeaf;
-          }
+          },
+          getAdaptiveCascadeParent: () => this.settings.adaptiveCascadeParent,
+          getCascadeParentPreset: () => this.settings.cascadeParentPreset,
+          getDisableFolderNotesInFolderOnlyView: () => this.settings.disableFolderNotesInFolderOnlyView
         })
     );
 
@@ -181,7 +187,47 @@ export default class FolderSpacesPlugin extends Plugin {
         this.reconcileFolderSpaceBindings();
       })
     );
+    this.registerEvent(
+      this.app.vault.on("rename", (file, oldPath) => {
+        if (!(file instanceof TFolder)) {
+          return;
+        }
+        const changed = migrateFolderPathInSettings(this.settings, oldPath, file.path);
+        if (changed) {
+          void this.saveData(this.settings);
+        }
+        this.updateOpenLeavesFolderPathOnRename(oldPath, file.path);
+      })
+    );
+    this.registerEvent(
+      this.app.vault.on("delete", (file) => {
+        if (!(file instanceof TFolder)) {
+          return;
+        }
+        const changed = pruneFolderPathFromSettings(this.settings, file.path);
+        if (changed) {
+          void this.saveData(this.settings);
+        }
+      })
+    );
     new FileExplorerCompatibilityBridge(this).start();
+  }
+
+  private updateOpenLeavesFolderPathOnRename(oldPath: string, newPath: string): void {
+    this.app.workspace.getLeavesOfType(FOLDER_SPACES_VIEW_TYPE).forEach((leaf) => {
+      const view = leaf.view as View & {
+        folderPath?: string | null;
+        setFolderPath?(path: string | null, options?: unknown): void;
+      };
+      if (view && typeof view.folderPath === "string") {
+        if (view.folderPath === oldPath) {
+          view.setFolderPath?.(newPath, { preserveViewSettings: true });
+        } else if (view.folderPath.startsWith(`${oldPath}/`)) {
+          const suffix = view.folderPath.slice(oldPath.length);
+          view.setFolderPath?.(`${newPath}${suffix}`, { preserveViewSettings: true });
+        }
+      }
+    });
   }
 
   override onunload(): void {
@@ -899,6 +945,9 @@ interface NativeExplorerViewLike {
   containerEl?: HTMLElement;
   navFileContainerEl?: HTMLElement;
   files?: Map<HTMLElement, TAbstractFile>;
+  tree?: {
+    setFocusedItem?: (item: unknown, focus?: boolean) => void;
+  };
 }
 
 interface NativeExplorerBinding {
@@ -994,6 +1043,30 @@ function createNativeExplorerBinding(
         }
       };
       win.addEventListener("click", handler, { capture: true });
+    }
+
+    const tree = view?.tree;
+    if (
+      tree &&
+      typeof tree.setFocusedItem === "function" &&
+      !(tree as unknown as { _folderSpacesSetFocusedHooked?: boolean })._folderSpacesSetFocusedHooked
+    ) {
+      (tree as unknown as { _folderSpacesSetFocusedHooked?: boolean })._folderSpacesSetFocusedHooked = true;
+      const originalSetFocusedItem = tree.setFocusedItem.bind(tree);
+      const debouncedPropagate = debounce((path: string) => {
+        const child = manager.getChildOf(panelId);
+        if (child && child.followParent) {
+          manager.propagateFrom(panelId, path);
+        }
+      }, 30, true);
+
+      tree.setFocusedItem = function (item: unknown, focus?: boolean) {
+        originalSetFocusedItem(item, focus);
+        const file = (item as { file?: TAbstractFile } | null)?.file;
+        if (file instanceof TFolder && manager.hasChild(panelId)) {
+          debouncedPropagate(file.path);
+        }
+      };
     }
 
     const container = view?.navFileContainerEl;

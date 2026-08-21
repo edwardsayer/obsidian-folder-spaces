@@ -9,7 +9,10 @@ import {
   resolveOpenLocation,
   resolveViewIcon,
   resolveDepthMode,
-  resolveContentMode
+  resolveContentMode,
+  migrateFolderPathInSettings,
+  pruneFolderPathFromSettings,
+  pruneOrphanFolderSettings
 } from "../src/settings.js";
 
 (globalThis as { getIconIds?: () => string[] }).getIconIds = () => [
@@ -209,28 +212,43 @@ test("normalizeSettings defaults and normalizes depth and content modes", () => 
 
 test("normalizeSettings defaults and normalizes view presets", () => {
   const defaults = normalizeSettings({});
-  assert.equal(defaults.defaultPreset, "contents");
+  assert.equal(defaults.defaultPreset, "explorer");
   assert.equal(defaults.defaultChildPreset, "contents");
   assert.equal(defaults.autoApplyChildPreset, true);
+  assert.equal(defaults.adaptiveCascadeParent, true);
+  assert.equal(defaults.cascadeParentPreset, "navigate");
+  assert.equal(defaults.disableFolderNotesInFolderOnlyView, true);
 
   const custom = normalizeSettings({
     defaultPreset: "navigate",
     defaultChildPreset: "context",
     autoApplyChildPreset: false,
+    adaptiveCascadeParent: false,
+    cascadeParentPreset: "columns",
+    disableFolderNotesInFolderOnlyView: false,
     defaultPresetBogus: "whatever"
   });
   assert.equal(custom.defaultPreset, "navigate");
   assert.equal(custom.defaultChildPreset, "context");
   assert.equal(custom.autoApplyChildPreset, false);
+  assert.equal(custom.adaptiveCascadeParent, false);
+  assert.equal(custom.cascadeParentPreset, "columns");
+  assert.equal(custom.disableFolderNotesInFolderOnlyView, false);
 
   const invalid = normalizeSettings({
     defaultPreset: "bogus",
     defaultChildPreset: "bogus",
-    autoApplyChildPreset: "yes"
+    autoApplyChildPreset: "yes",
+    adaptiveCascadeParent: "no",
+    cascadeParentPreset: "bogus",
+    disableFolderNotesInFolderOnlyView: "no"
   });
-  assert.equal(invalid.defaultPreset, "contents");
+  assert.equal(invalid.defaultPreset, "explorer");
   assert.equal(invalid.defaultChildPreset, "contents");
   assert.equal(invalid.autoApplyChildPreset, true);
+  assert.equal(invalid.adaptiveCascadeParent, true);
+  assert.equal(invalid.cascadeParentPreset, "navigate");
+  assert.equal(invalid.disableFolderNotesInFolderOnlyView, true);
 });
 
 test("normalizeSettings defaults and normalizes per-folder sort orders", () => {
@@ -249,4 +267,112 @@ test("normalizeSettings defaults and normalizes per-folder sort orders", () => {
   assert.equal("Projects/Archive" in custom.folderSortOrders, false);
   assert.equal("" in custom.folderSortOrders, false);
   assert.deepEqual(custom.folderSortOrders["Projects/Empty"], { key: "ctime", dir: "asc" });
+});
+
+test("migrateFolderPathInSettings renames paths and subpaths across all per-folder maps", () => {
+  const settings = normalizeSettings({
+    folderIcons: {
+      "Projects/Alpha": "lucide-rocket",
+      "Projects/Alpha/Sub": "lucide-star",
+      "Notes": "lucide-folder"
+    },
+    folderViewModes: {
+      "Projects/Alpha": "flat",
+      "Projects/Alpha/Sub": "tree"
+    },
+    folderDepthModes: {
+      "Projects/Alpha": "one-level"
+    },
+    folderContentModes: {
+      "Projects/Alpha/Sub": "files"
+    },
+    folderSortOrders: {
+      "Projects/Alpha": { key: "mtime", dir: "desc" }
+    }
+  });
+
+  const changed = migrateFolderPathInSettings(settings, "Projects/Alpha", "Projects/Beta");
+  assert.equal(changed, true);
+
+  // Exact match and subpath migrated
+  assert.equal(settings.folderIcons["Projects/Beta"], "lucide-rocket");
+  assert.equal(settings.folderIcons["Projects/Beta/Sub"], "lucide-star");
+  assert.equal("Projects/Alpha" in settings.folderIcons, false);
+  assert.equal("Projects/Alpha/Sub" in settings.folderIcons, false);
+  assert.equal(settings.folderIcons["Notes"], "lucide-folder");
+
+  assert.equal(settings.folderViewModes["Projects/Beta"], "flat");
+  assert.equal(settings.folderViewModes["Projects/Beta/Sub"], "tree");
+  assert.equal(settings.folderDepthModes["Projects/Beta"], "one-level");
+  assert.equal(settings.folderContentModes["Projects/Beta/Sub"], "files");
+  assert.deepEqual(settings.folderSortOrders["Projects/Beta"], { key: "mtime", dir: "desc" });
+
+  // No-op for non-existent path
+  assert.equal(migrateFolderPathInSettings(settings, "NonExistent", "NewNonExistent"), false);
+});
+
+test("pruneFolderPathFromSettings deletes paths and subpaths across all per-folder maps", () => {
+  const settings = normalizeSettings({
+    folderIcons: {
+      "Projects/Alpha": "lucide-rocket",
+      "Projects/Alpha/Sub": "lucide-star",
+      "Notes": "lucide-folder"
+    },
+    folderViewModes: {
+      "Projects/Alpha": "flat",
+      "Projects/Alpha/Sub": "tree"
+    },
+    folderSortOrders: {
+      "Projects/Alpha": { key: "mtime", dir: "desc" }
+    }
+  });
+
+  const changed = pruneFolderPathFromSettings(settings, "Projects/Alpha");
+  assert.equal(changed, true);
+
+  assert.equal("Projects/Alpha" in settings.folderIcons, false);
+  assert.equal("Projects/Alpha/Sub" in settings.folderIcons, false);
+  assert.equal("Projects/Alpha" in settings.folderViewModes, false);
+  assert.equal("Projects/Alpha" in settings.folderSortOrders, false);
+  assert.equal(settings.folderIcons["Notes"], "lucide-folder");
+
+  // No-op for non-existent path
+  assert.equal(pruneFolderPathFromSettings(settings, "NonExistent"), false);
+});
+
+test("pruneOrphanFolderSettings prunes non-existing folder entries across all maps", () => {
+  const settings = normalizeSettings({
+    folderIcons: {
+      "Projects/Active": "lucide-rocket",
+      "Projects/Deleted": "lucide-star",
+      "": "lucide-folders"
+    },
+    folderViewModes: {
+      "Projects/Active": "flat",
+      "Projects/Ghost": "tree"
+    },
+    folderDepthModes: {
+      "Projects/Ghost": "one-level"
+    },
+    folderContentModes: {
+      "Projects/Active": "folders",
+      "Projects/Ghost": "files"
+    },
+    folderSortOrders: {
+      "Projects/Active": { key: "mtime", dir: "desc" },
+      "Projects/Ghost": { key: "ctime", dir: "asc" }
+    }
+  });
+
+  const existing = new Set(["Projects/Active", "OtherFolder"]);
+  const changed = pruneOrphanFolderSettings(settings, existing);
+  assert.equal(changed, true);
+
+  assert.equal("Projects/Active" in settings.folderIcons, true);
+  assert.equal("Projects/Deleted" in settings.folderIcons, false);
+  assert.equal("Projects/Active" in settings.folderViewModes, true);
+  assert.equal("Projects/Ghost" in settings.folderViewModes, false);
+  assert.equal("Projects/Ghost" in settings.folderDepthModes, false);
+  assert.equal("Projects/Ghost" in settings.folderContentModes, false);
+  assert.equal("Projects/Ghost" in settings.folderSortOrders, false);
 });

@@ -16,4 +16,8 @@ test("i18n language resolution falls back correctly and distinguishes zh-TW / zh
 
   assert.equal(t("actionGoUp", "zh-TW"), "返回上層資料夾");
   assert.equal(t("actionGoUp", "zh-CN"), "返回上层文件夹");
+  assert.equal(t("actionOpenSettings", "en"), "Open Folder Spaces settings");
+  assert.equal(t("actionOpenSettings", "zh-TW"), "開啟 Folder Spaces 設定");
+  assert.equal(t("actionOpenSettings", "zh-CN"), "打开 Folder Spaces 设置");
+  assert.equal(t("settingsDisableFolderNotesInFolderOnlyName", "zh-TW"), "在純資料夾檢視中停用資料夾筆記");
 });

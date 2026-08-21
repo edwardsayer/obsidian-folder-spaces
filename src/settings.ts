@@ -32,6 +32,9 @@ export interface FolderSpacesSettings {
   defaultPreset: FolderSpacePresetId;
   defaultChildPreset: FolderSpacePresetId;
   autoApplyChildPreset: boolean;
+  adaptiveCascadeParent: boolean;
+  cascadeParentPreset: FolderSpacePresetId;
+  disableFolderNotesInFolderOnlyView: boolean;
   folderSortOrders: Record<string, FolderSpaceSortOrder>;
 }
 
@@ -48,9 +51,12 @@ export const DEFAULT_SETTINGS: FolderSpacesSettings = {
   showRibbonIcon: true,
   defaultFollowParentSameWindow: true,
   defaultFollowParentNewWindow: false,
-  defaultPreset: "contents",
+  defaultPreset: "explorer",
   defaultChildPreset: "contents",
   autoApplyChildPreset: true,
+  adaptiveCascadeParent: true,
+  cascadeParentPreset: "navigate",
+  disableFolderNotesInFolderOnlyView: true,
   folderSortOrders: {}
 };
 
@@ -78,6 +84,12 @@ export function normalizeSettings(data: unknown): FolderSpacesSettings {
     defaultPreset: resolvePresetId(settings.defaultPreset, DEFAULT_SETTINGS.defaultPreset),
     defaultChildPreset: resolvePresetId(settings.defaultChildPreset, DEFAULT_SETTINGS.defaultChildPreset),
     autoApplyChildPreset: normalizeBoolean(settings.autoApplyChildPreset, DEFAULT_SETTINGS.autoApplyChildPreset),
+    adaptiveCascadeParent: normalizeBoolean(settings.adaptiveCascadeParent, DEFAULT_SETTINGS.adaptiveCascadeParent),
+    cascadeParentPreset: resolvePresetId(settings.cascadeParentPreset, DEFAULT_SETTINGS.cascadeParentPreset),
+    disableFolderNotesInFolderOnlyView: normalizeBoolean(
+      settings.disableFolderNotesInFolderOnlyView,
+      DEFAULT_SETTINGS.disableFolderNotesInFolderOnlyView
+    ),
     folderSortOrders: normalizeFolderSortOrders(settings.folderSortOrders)
   };
 }
@@ -269,3 +281,102 @@ function normalizeFolderContentModes(data: unknown): Record<string, FolderSpaceC
   }
   return normalized;
 }
+
+/**
+ * 當資料夾更名或搬移時，將個別資料夾設定字典中的路徑 key（含子目錄）遷移至新路徑。
+ */
+export function migrateFolderPathInSettings(
+  settings: FolderSpacesSettings,
+  oldPath: string,
+  newPath: string
+): boolean {
+  if (!oldPath || !newPath || oldPath === newPath) {
+    return false;
+  }
+
+  let changed = false;
+  const migrateMap = (map: Record<string, any> | undefined) => {
+    if (!map) return;
+    for (const key of Object.keys(map)) {
+      const val = map[key];
+      if (val === undefined) continue;
+      if (key === oldPath) {
+        map[newPath] = val;
+        delete map[key];
+        changed = true;
+      } else if (key.startsWith(`${oldPath}/`)) {
+        const suffix = key.slice(oldPath.length);
+        map[`${newPath}${suffix}`] = val;
+        delete map[key];
+        changed = true;
+      }
+    }
+  };
+
+  migrateMap(settings.folderIcons);
+  migrateMap(settings.folderViewModes);
+  migrateMap(settings.folderDepthModes);
+  migrateMap(settings.folderContentModes);
+  migrateMap(settings.folderSortOrders);
+
+  return changed;
+}
+
+/**
+ * 當資料夾被刪除時，將個別資料夾設定字典中的路徑 key（含子目錄）清理刪除。
+ */
+export function pruneFolderPathFromSettings(
+  settings: FolderSpacesSettings,
+  deletedPath: string
+): boolean {
+  if (!deletedPath) {
+    return false;
+  }
+
+  let changed = false;
+  const pruneMap = <T>(map: Record<string, T> | undefined) => {
+    if (!map) return;
+    for (const key of Object.keys(map)) {
+      if (key === deletedPath || key.startsWith(`${deletedPath}/`)) {
+        delete map[key];
+        changed = true;
+      }
+    }
+  };
+
+  pruneMap(settings.folderIcons);
+  pruneMap(settings.folderViewModes);
+  pruneMap(settings.folderDepthModes);
+  pruneMap(settings.folderContentModes);
+  pruneMap(settings.folderSortOrders);
+
+  return changed;
+}
+
+/**
+ * 清理不存在於當前 Vault 實體資料夾清單中的孤兒設定（在設定頁載入時呼叫）。
+ */
+export function pruneOrphanFolderSettings(
+  settings: FolderSpacesSettings,
+  existingFolderPaths: Set<string>
+): boolean {
+  let changed = false;
+  const pruneMap = <T>(map: Record<string, T> | undefined) => {
+    if (!map) return;
+    for (const path of Object.keys(map)) {
+      if (path !== "" && !existingFolderPaths.has(path)) {
+        delete map[path];
+        changed = true;
+      }
+    }
+  };
+
+  pruneMap(settings.folderIcons);
+  pruneMap(settings.folderViewModes);
+  pruneMap(settings.folderDepthModes);
+  pruneMap(settings.folderContentModes);
+  pruneMap(settings.folderSortOrders);
+
+  return changed;
+}
+

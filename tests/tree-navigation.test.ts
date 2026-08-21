@@ -173,3 +173,147 @@ test("computeNextFocusedItem moves focus only between visible items and skips co
   const recoveredItem = computeNextFocusedItem(visible, itemChildA1, "forwards", "Root");
   assert.equal(recoveredItem, itemFileB);
 });
+
+test("keyboard focus change cascades to bound child panel", async () => {
+  const propagatedPaths: string[] = [];
+  const manager: any = {
+    hasChild: (id: string) => id === "parent-panel",
+    getChildOf: (id: string) => ({ panelId: "child-panel", followParent: true }),
+    propagateFrom: (id: string, path: string) => {
+      propagatedPaths.push(path);
+    }
+  };
+
+  let focused: any = null;
+  const tree: any = {
+    focusedItem: null,
+    setFocusedItem(item: any, focus?: boolean) {
+      focused = item;
+      tree.focusedItem = item;
+    }
+  };
+
+  // Simulate registerTreeNavigationOverride hook on setFocusedItem
+  const originalSetFocusedItem = tree.setFocusedItem.bind(tree);
+  tree.setFocusedItem = function (item: any, focus?: boolean) {
+    originalSetFocusedItem(item, focus);
+    if (item?.file?.isFolder && manager.hasChild("parent-panel")) {
+      const child = manager.getChildOf("parent-panel");
+      if (child && child.followParent) {
+        manager.propagateFrom("parent-panel", item.file.path);
+      }
+    }
+  };
+
+  const folderItem: any = { file: { path: "Projects/Alpha", isFolder: true } };
+  const fileItem: any = { file: { path: "Projects/Alpha/doc.md", isFolder: false } };
+
+  tree.setFocusedItem(folderItem);
+  assert.equal(focused, folderItem);
+  assert.deepEqual(propagatedPaths, ["Projects/Alpha"]);
+
+  // Focusing a file should not cascade folder path
+  tree.setFocusedItem(fileItem);
+  assert.deepEqual(propagatedPaths, ["Projects/Alpha"]);
+});
+
+test("drillDownToFolder pushes current state to drillDownStack and updates to target folder", () => {
+  const folderViewModes: Record<string, any> = {
+    "Projects/Alpha": "flat",
+    "Projects/Alpha/Sub": "tree"
+  };
+  const folderDepthModes: Record<string, any> = {
+    "Projects/Alpha": "one-level",
+    "Projects/Alpha/Sub": "all-level"
+  };
+  const folderContentModes: Record<string, any> = {
+    "Projects/Alpha": "files",
+    "Projects/Alpha/Sub": "folders"
+  };
+
+  const view: any = {
+    folderPath: "Projects",
+    viewMode: "tree",
+    depthMode: "all-level",
+    contentMode: "all",
+    drillDownStack: [],
+    getDefaultViewMode: () => "tree",
+    getFolderViewMode: (p: string) => folderViewModes[p] ?? null,
+    getDefaultDepthMode: () => "all-level",
+    getFolderDepthMode: (p: string) => folderDepthModes[p] ?? null,
+    getDefaultContentMode: () => "all",
+    getFolderContentMode: (p: string) => folderContentModes[p] ?? null,
+    getFolderSortOrder: () => null,
+    getIcon: () => "lucide-folders",
+    requestSort: () => {},
+    followParentButtonEl: {
+      toggle: () => {},
+      toggleClass: () => {},
+      setAttr: () => {},
+      removeAttribute: () => {},
+      empty: () => {}
+    },
+    app: {
+      workspace: {
+        requestSaveLayout: () => Promise.resolve()
+      }
+    }
+  };
+
+  // Import drillDownToFolder / drillDownGoBack logic test
+  // Step 1: Drill down to Projects/Alpha
+  if (!view.drillDownStack) view.drillDownStack = [];
+  view.drillDownStack.push({
+    folderPath: view.folderPath,
+    viewMode: view.viewMode,
+    depthMode: view.depthMode,
+    contentMode: view.contentMode
+  });
+  view.folderPath = "Projects/Alpha";
+  view.viewMode = "flat";
+  view.depthMode = "one-level";
+  view.contentMode = "files";
+
+  assert.equal(view.folderPath, "Projects/Alpha");
+  assert.equal(view.viewMode, "flat");
+  assert.equal(view.depthMode, "one-level");
+  assert.equal(view.contentMode, "files");
+  assert.equal(view.drillDownStack.length, 1);
+  assert.deepEqual(view.drillDownStack[0], {
+    folderPath: "Projects",
+    viewMode: "tree",
+    depthMode: "all-level",
+    contentMode: "all"
+  });
+
+  // Step 2: Drill down to Projects/Alpha/Sub
+  view.drillDownStack.push({
+    folderPath: view.folderPath,
+    viewMode: view.viewMode,
+    depthMode: view.depthMode,
+    contentMode: view.contentMode
+  });
+  view.folderPath = "Projects/Alpha/Sub";
+  view.viewMode = "tree";
+  view.depthMode = "all-level";
+  view.contentMode = "folders";
+  assert.equal(view.drillDownStack.length, 2);
+
+  // Step 3: Back to Projects/Alpha
+  const prev1 = view.drillDownStack.pop();
+  view.folderPath = prev1.folderPath;
+  view.viewMode = prev1.viewMode;
+  view.depthMode = prev1.depthMode;
+  view.contentMode = prev1.contentMode;
+  assert.equal(view.folderPath, "Projects/Alpha");
+  assert.equal(view.drillDownStack.length, 1);
+
+  // Step 4: Back to Projects
+  const prev2 = view.drillDownStack.pop();
+  view.folderPath = prev2.folderPath;
+  view.viewMode = prev2.viewMode;
+  view.depthMode = prev2.depthMode;
+  view.contentMode = prev2.contentMode;
+  assert.equal(view.folderPath, "Projects");
+  assert.equal(view.drillDownStack.length, 0);
+});

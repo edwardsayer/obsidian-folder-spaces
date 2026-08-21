@@ -341,3 +341,19 @@ test("isAlive helper is used by the manager for reconcile decisions", () => {
   assert.equal(isAlive(parent), true);
   assert.equal(isAlive(dead), false);
 });
+
+test("hasChild correctly reports whether a panel parents any active child", () => {
+  const manager = new PanelBindingManager();
+  const parent = createPanel("parent");
+  const child = createPanel("child");
+
+  manager.register(parent);
+  manager.register(child);
+
+  assert.equal(manager.hasChild("parent"), false);
+  manager.bind("parent", "child");
+  assert.equal(manager.hasChild("parent"), true);
+
+  manager.unbind("child");
+  assert.equal(manager.hasChild("parent"), false);
+});

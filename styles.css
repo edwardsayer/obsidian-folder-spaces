@@ -181,48 +181,6 @@
   line-height: 1.5;
 }
 
-/* Options panel grouping related settings */
-
-.folder-spaces-options-panel {
-  margin: var(--size-4-2) 0;
-  padding: var(--size-4-2) 0 var(--size-4-1) var(--size-4-3);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-m);
-  background-color: var(--background-secondary);
-}
-
-.folder-spaces-options-panel-title,
-.folder-spaces-options-panel-desc {
-  padding-right: var(--size-4-3);
-}
-
-.folder-spaces-options-panel-title {
-  margin-bottom: var(--size-2-1);
-  color: var(--text-normal);
-  font-weight: var(--font-semibold);
-}
-
-.folder-spaces-options-panel-desc {
-  margin-bottom: var(--size-4-2);
-  color: var(--text-muted);
-  font-size: var(--font-ui-smaller);
-}
-
-.folder-spaces-options-panel .setting-item {
-  margin-right: -1px;
-  padding-top: var(--size-2-2);
-  padding-bottom: var(--size-2-2);
-  border: none;
-  background-color: transparent;
-}
-
-.folder-spaces-options-panel .setting-item:hover {
-  background-color: transparent;
-}
-
-.folder-spaces-options-panel .setting-item:last-child {
-  padding-bottom: 0;
-}
 
 .folder-spaces-icon-suggestion {
   display: flex;
@@ -327,3 +285,44 @@
   pointer-events: none;
   cursor: default;
 }
+
+/* 下鑽就地縮放返回按鈕 (Drill-down In-place Back Button) */
+.folder-spaces-status-icon.folder-spaces-back-btn {
+  cursor: pointer !important;
+  color: var(--text-muted);
+}
+
+.folder-spaces-status-icon.folder-spaces-back-btn:hover {
+  color: var(--text-normal);
+  background-color: var(--background-modifier-hover);
+}
+
+/* 預設集規格對照表 (Presets Reference Table in Settings) */
+.folder-spaces-presets-table-container {
+  width: 100%;
+  overflow-x: auto;
+  margin-top: var(--size-4-1);
+}
+
+.folder-spaces-presets-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-ui-small);
+}
+
+.folder-spaces-presets-table th,
+.folder-spaces-presets-table td {
+  padding: var(--size-2-2) var(--size-4-2);
+  text-align: start;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.folder-spaces-presets-table th {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.folder-spaces-presets-table tr:last-child td {
+  border-bottom: none;
+}
+
