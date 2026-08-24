@@ -129,6 +129,7 @@ function createStableProxy(state: PopoutLayoutRegistryState): PopoutLayoutEngine
     const engine = state.activeEngine;
     if (!engine) return null;
     const workspace = engine.workspace as ExtendedWorkspace & { openPopoutLeaf?: () => WorkspaceLeaf };
+    // INTERNAL API: Workspace.openPopoutLeaf - d.ts 有宣告但官方文件未記載（asar-findings #3：帶 WorkspaceWindowInitData 消除兩階段跳動）
     const leaf = workspace.openPopoutLeaf?.();
     if (!leaf) return null;
 

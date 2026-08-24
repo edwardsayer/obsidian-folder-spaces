@@ -178,14 +178,20 @@ function routeGetLeaf(
     return null;
   }
 
+  const isNewContentLeafRequested = newLeaf === true || newLeaf === "tab" || newLeaf === "split";
+  if (isNewContentLeafRequested) {
+    // Route every explicit new tab/split request through the engine so a
+    // content group remembered before a sidebar click remains the target.
+    const centerLeaf = newLeaf === "split"
+      ? engine.getCenterLeafSync(activeWindow)
+      : engine.getCenterLeafSync(activeWindow, newLeaf);
+    return newLeaf === "split"
+      ? splitCenterLeaf(state.workspace, centerLeaf)
+      : centerLeaf;
+  }
+
   const activeLeaf = engine.getActiveLeafInWindow(activeWindow);
   if (activeLeaf && engine.isLeafInSideColumn(activeWindow, activeLeaf)) {
-    if (newLeaf === "split") {
-      // 側欄 active 時 split：以中央編輯區的 leaf 為錨點，避免 split 到側欄
-      // （原生 splitActiveLeaf 會 split「最近 active 的 leaf」，可能是側欄）。
-      const centerLeaf = engine.getCenterLeafSync(activeWindow);
-      return splitCenterLeaf(state.workspace, centerLeaf);
-    }
     return engine.getCenterLeafSync(activeWindow, newLeaf);
   }
 

@@ -296,6 +296,7 @@ function isSidebarColumnElement(columnEl: HTMLElement | null | undefined): boole
 export class PopoutLayoutEngine {
   private app: App;
   private sidebarSidesByWindow = new WeakMap<Window, SidebarSides>();
+  private lastActiveContentPanesByWindow = new WeakMap<Window, WorkspaceParent>();
 
   constructor(app: App) {
     this.app = app;
@@ -312,6 +313,26 @@ export class PopoutLayoutEngine {
         ? this.workspace.getMostRecentLeaf()
         : this.workspace.activeLeaf;
     return activeLeaf && getWindowOfLeaf(activeLeaf) === win ? activeLeaf : null;
+  }
+
+  /**
+   * 記錄 Popout 中最後 active 的 content-area tab group。
+   *
+   * 側欄 view 被點選後，Obsidian 的 active leaf 會暫時落在 sidebar；
+   * 此記錄讓後續 getLeaf("tab"/"split") 仍能回到使用者最後操作的 content group。
+   * 只接受目前仍存在且未被標記為 sidebar 的 tab group，避免把側欄或已拆除的
+   * parent 留在記憶中。
+   */
+  rememberActiveContentPane(win: Window, leaf: WorkspaceLeaf | null | undefined): void {
+    if (!win || !leaf || getWindowOfLeaf(leaf) !== win) return;
+
+    const tabs = (leaf as unknown as ExtendedWorkspaceLeaf).parent;
+    if (!tabs) return;
+
+    const isCurrentCenterPane = this.getCenterPanes(win).some((pane) => pane.tabs === tabs);
+    if (isCurrentCenterPane) {
+      this.lastActiveContentPanesByWindow.set(win, tabs);
+    }
   }
 
   /** 取得指定視窗中最後一個 leaf（限定該 window）。 */
@@ -484,6 +505,7 @@ export class PopoutLayoutEngine {
     const targetNode = getTopLevelNodeInWindow(editorLeaf) || editorLeaf;
     const isParentNode = targetNode !== editorLeaf && Boolean((targetNode as WorkspaceParent).children);
     const before = side === "left" ? !isParentNode : isParentNode;
+    // INTERNAL API: Workspace.createLeafBySplit - d.ts 有宣告但官方文件未記載（asar-findings #2：方向扁平化行為需實測驗證）
     const panelLeaf = workspace.createLeafBySplit(targetNode as WorkspaceLeaf, "vertical", before);
 
     if (viewType) {
@@ -560,6 +582,7 @@ export class PopoutLayoutEngine {
     const targetNode = getTopLevelNodeInWindow(editorLeaf) || editorLeaf;
     const isParentNode = targetNode !== editorLeaf && Boolean((targetNode as WorkspaceParent).children);
     const before = side === "left" ? !isParentNode : isParentNode;
+    // INTERNAL API: Workspace.createLeafBySplit - d.ts 有宣告但官方文件未記載（asar-findings #2）
     const panelLeaf = workspace.createLeafBySplit(targetNode as WorkspaceLeaf, "vertical", before);
 
     scheduleInitialSplitSizing(panelLeaf, editorLeaf, win);
@@ -569,6 +592,7 @@ export class PopoutLayoutEngine {
   private createLeafInTabs(tabs: WorkspaceParent | null | undefined): WorkspaceLeaf {
     const workspace = this.workspace;
     const children = (tabs?.children ?? []) as WorkspaceLeaf[];
+    // INTERNAL API: Workspace.createLeafInParent - d.ts 有宣告但官方文件未記載（同 createLeafBySplit 的 leaf 層級建立行為）
     const leaf = workspace.createLeafInParent(
       tabs as unknown as Parameters<typeof workspace.createLeafInParent>[0],
       children.length
@@ -731,6 +755,27 @@ export class PopoutLayoutEngine {
     return container.offsetParent !== null;
   }
 
+  /** 以目前 active leaf 或最後記錄的 pane 決定 content-area 目標。 */
+  private pickPreferredCenterPopoutPane(panes: PopoutPane[], win: Window): PopoutPane | null {
+    const activeLeaf = this.getActiveLeafInWindow(win);
+    const activeTabs = activeLeaf
+      ? (activeLeaf as unknown as ExtendedWorkspaceLeaf).parent
+      : null;
+    const activePane = activeTabs ? panes.find((pane) => pane.tabs === activeTabs) : null;
+    if (activePane) {
+      this.lastActiveContentPanesByWindow.set(win, activePane.tabs);
+      return activePane;
+    }
+
+    const rememberedTabs = this.lastActiveContentPanesByWindow.get(win);
+    const rememberedPane = rememberedTabs
+      ? panes.find((pane) => pane.tabs === rememberedTabs)
+      : null;
+    if (rememberedPane) return rememberedPane;
+
+    return this.pickCenterPopoutPane(panes, win);
+  }
+
   /**
    * 同步取得/建立位於 Popout 視窗「中央編輯區」的 WorkspaceLeaf。
    * 用於避免側欄觸發開啟檔案時覆蓋側欄 View。
@@ -738,7 +783,7 @@ export class PopoutLayoutEngine {
   getCenterLeafSync(win: Window, newLeaf?: boolean | string): WorkspaceLeaf {
     const workspace = this.workspace;
     const centerPanes = this.getCenterPanes(win);
-    const targetPane = this.pickCenterPopoutPane(centerPanes, win);
+    const targetPane = this.pickPreferredCenterPopoutPane(centerPanes, win);
 
     if (targetPane) {
       const isNewTabRequested = newLeaf === true || newLeaf === "tab" || newLeaf === "split";
@@ -778,6 +823,7 @@ export class PopoutLayoutEngine {
     );
     let centerLeaf: WorkspaceLeaf;
     try {
+      // INTERNAL API: Workspace.createLeafBySplit - d.ts 有宣告但官方文件未記載（asar-findings #2：方向扁平化行為）
       centerLeaf = workspace.createLeafBySplit(targetNode as WorkspaceLeaf, "vertical", false);
     } catch {
       centerLeaf = null as unknown as WorkspaceLeaf;
@@ -791,6 +837,7 @@ export class PopoutLayoutEngine {
 
     // 新欄位移到「第一個 column 之後」（index 1），並分配 flex 權重
     const windowRoot = this.getWindowRootOf(win);
+    // INTERNAL API: WorkspaceItem.removeChild / WorkspaceItem.insertChild - d.ts 僅宣告 Component 層級 removeChild（非 WorkspaceItem 語意）、insertChild 未宣告（asar-findings：WorkspaceWindow children 操作）
     if (windowRoot && typeof windowRoot.removeChild === "function") {
       const newTabs = (centerLeaf as unknown as ExtendedWorkspaceLeaf).parent;
       if (newTabs) {
@@ -851,6 +898,7 @@ export class PopoutLayoutEngine {
       const item = child as WorkspaceParent & {
         setDimension?: (value: number) => void;
       };
+      // INTERNAL API: WorkspaceItem.setDimension - d.ts 未宣告（asar-findings #8：寫入 split 比例 flex-grow 權重）
       if (typeof item.setDimension === "function") {
         item.setDimension(dimension);
       }
@@ -876,13 +924,39 @@ export class PopoutLayoutEngine {
     const rootEl = findRootSplitElement(container);
     if (!rootEl) return [];
 
-    return Array.from(rootEl.children).filter((el): el is HTMLElement => {
+    let topEls = Array.from(rootEl.children).filter((el): el is HTMLElement => {
       if (!(el instanceof HTMLElement)) return false;
       return (
         el.classList.contains("workspace-tabs") ||
         el.classList.contains("workspace-split")
       );
     });
+
+    // 針對 Obsidian popout：`.mod-root` 之下多包一層「欄位容器」split，
+    // 實際欄位（tabs/split 並排）是該容器 split 的 children。若不處理，
+    // 這裡會把整欄欄位容器當成單一欄位，永遠數不到容器內真正的多欄
+    // （導致 enable activity bar 補欄後 getColumnElement 誤判缺欄、補欄
+    // 建在巢狀層級）。下鑽規則：僅在 popout 視窗內，且 root 的直接欄位
+    // 恰好只有一個 workspace-split（欄位容器）時，取其 children 當頂層欄位。
+    const popoutColumnContainer = topEls.length === 1 ? topEls[0] : undefined;
+    if (
+      isPopoutWindow(win) &&
+      popoutColumnContainer &&
+      popoutColumnContainer.classList.contains("workspace-split")
+    ) {
+      const containerChildren = Array.from(popoutColumnContainer.children).filter((el): el is HTMLElement => {
+        if (!(el instanceof HTMLElement)) return false;
+        return (
+          el.classList.contains("workspace-tabs") ||
+          el.classList.contains("workspace-split")
+        );
+      });
+      if (containerChildren.length > 0) {
+        topEls = containerChildren;
+      }
+    }
+
+    return topEls;
   }
 
   /** 取得指定側「最外側」的頂層欄位（不問是否為 sidebar），供主動 open-in-sidebar 定位。 */
@@ -897,10 +971,17 @@ export class PopoutLayoutEngine {
    *
    * 語意：主動/實體定位（open-in-sidebar、hide/show column、隱藏狀態 capture/apply）。
    * - 有 hints（activityBar 寫入的物理側欄映射）：該側有側欄 → 最左/最右欄位；
-   *   該側無側欄 → null。欄位數低於「需求欄位數」時也回 null（側欄可能被
-   *   close all 刪除，由 plugin 的完整性守護補欄）。
+   *   該側無側欄 → null（側欄可能被 close all 刪除，由 plugin 的完整性守護補欄）。
    * - 無 hints（非 Window Spaces 管理或尚未同步）：以 UI 標記
    *   （window-spaces-sidebar-column class）保守推斷；無標記 → null。
+   *
+   * 優先判定規則：邊緣欄位是否仍帶該側 sidebar 標記（mod-left-split /
+   * mod-right-split）優先於欄位數算術。標記由 activityBar 的
+   * syncSidebarColumnClasses 依「activity bar 可見 + 位於最左/最右 + 頂層欄位數
+   * ≥ 2」持續同步，只要該側側欄欄位還存在，即使使用者關閉了「內容欄位」使
+   * 頂層欄位數低於原始欄位數（2026-08 實測：關閉第 3 欄的兩個 split 後欄位數
+   * 由 4 減為 3），此處仍認定側欄存在、不需補欄。僅當側欄真的被 close-all
+   * 移除（邊緣欄變成內容欄位、不再帶該側標記）時才落到欄位數算術判缺失。
    *
    * 注意：被動判定（isLeafInSideColumn / getCenterPanes）不使用本方法，
    * 一律以 UI 標記 class 為準，確保開檔排除與視覺樣式永遠一致。
@@ -908,6 +989,15 @@ export class PopoutLayoutEngine {
   getColumnElement(win: Window, side: PopoutSide): HTMLElement | null {
     const edge = this.getEdgeColumnElement(win, side);
     if (!edge) return null;
+
+    // 物理側欄標記優先：邊緣欄位仍帶該側 sidebar 標記即代表該側 sidebar 仍然存在。
+    // 關閉內容欄位造成的欄位數減少不得判為側欄缺失，否則補欄邏輯會在原本第 1 欄
+    // 左側誤補一個新欄（以 activity bar 第一個 view 填滿）。
+    const isSidebarForSide =
+      side === "left"
+        ? edge.classList.contains("mod-left-split")
+        : edge.classList.contains("mod-right-split");
+    if (isSidebarForSide) return edge;
 
     const configuredSides = this.sidebarSidesByWindow.get(win);
     if (configuredSides) {
