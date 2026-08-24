@@ -67,6 +67,12 @@ export interface PopoutColumn {
   panes: PopoutPane[];
 }
 
+interface LastActivePanes {
+  center?: WorkspaceParent;
+  left?: WorkspaceParent;
+  right?: WorkspaceParent;
+}
+
 /**
  * 實體側欄映射（由 plugin 同步）。
  *
@@ -296,7 +302,7 @@ function isSidebarColumnElement(columnEl: HTMLElement | null | undefined): boole
 export class PopoutLayoutEngine {
   private app: App;
   private sidebarSidesByWindow = new WeakMap<Window, SidebarSides>();
-  private lastActiveContentPanesByWindow = new WeakMap<Window, WorkspaceParent>();
+  private lastActivePanesByWindow = new WeakMap<Window, LastActivePanes>();
 
   constructor(app: App) {
     this.app = app;
@@ -316,12 +322,10 @@ export class PopoutLayoutEngine {
   }
 
   /**
-   * 記錄 Popout 中最後 active 的 content-area tab group。
-   *
-   * 側欄 view 被點選後，Obsidian 的 active leaf 會暫時落在 sidebar；
-   * 此記錄讓後續 getLeaf("tab"/"split") 仍能回到使用者最後操作的 content group。
-   * 只接受目前仍存在且未被標記為 sidebar 的 tab group，避免把側欄或已拆除的
-   * parent 留在記憶中。
+   * 記錄 Popout 中最後 active 的 pane，content / left sidebar / right sidebar
+   * 各自維護一份。側欄 view 被點選後，Obsidian 的 active leaf 會暫時落在
+   * sidebar；此記錄讓後續新 tab 或 view 回到該區域最後操作的 split，而不會
+   * 每次都落到第一個 pane。
    */
   rememberActiveContentPane(win: Window, leaf: WorkspaceLeaf | null | undefined): void {
     if (!win || !leaf || getWindowOfLeaf(leaf) !== win) return;
@@ -329,9 +333,18 @@ export class PopoutLayoutEngine {
     const tabs = (leaf as unknown as ExtendedWorkspaceLeaf).parent;
     if (!tabs) return;
 
+    const remembered = this.lastActivePanesByWindow.get(win) || {};
+    const side = this.getSidebarSideForLeaf(win, leaf);
+    if (side) {
+      remembered[side] = tabs;
+      this.lastActivePanesByWindow.set(win, remembered);
+      return;
+    }
+
     const isCurrentCenterPane = this.getCenterPanes(win).some((pane) => pane.tabs === tabs);
     if (isCurrentCenterPane) {
-      this.lastActiveContentPanesByWindow.set(win, tabs);
+      remembered.center = tabs;
+      this.lastActivePanesByWindow.set(win, remembered);
     }
   }
 
@@ -460,7 +473,7 @@ export class PopoutLayoutEngine {
     const columnEl = this.getColumnElement(win, side);
 
     if (columnEl) {
-      const tabs = this.getSidebarTabsInColumn(win, columnEl);
+      const tabs = this.getSidebarTabsInColumn(win, side, columnEl);
       if (tabs) {
         if (viewType) {
           const existingInSidebar = findLeafInTabs(tabs, viewType);
@@ -525,13 +538,23 @@ export class PopoutLayoutEngine {
 
   /**
    * 在指定側欄欄位（頂層 column 元素）內解析目標 tabs 群組：
-   * 優先取該欄位中 active leaf 所在的 pane，否則第一個 pane 的 tabs。
+   * 優先取該欄位中 active leaf 所在的 pane，再取該側最後記憶的 pane，
+   * 最後才回退到第一個 pane 的 tabs。
    */
-  private getSidebarTabsInColumn(win: Window, columnEl: HTMLElement): WorkspaceParent | null {
+  private getSidebarTabsInColumn(
+    win: Window,
+    side: PopoutSide,
+    columnEl: HTMLElement
+  ): WorkspaceParent | null {
     const activeLeaf = this.getActiveLeafInWindow(win);
     if (activeLeaf) {
       const tabs = this.getTabsForLeafInColumn(win, columnEl, activeLeaf);
       if (tabs) return tabs;
+    }
+
+    const rememberedTabs = this.lastActivePanesByWindow.get(win)?.[side];
+    if (rememberedTabs && this.isTabsInColumn(win, columnEl, rememberedTabs)) {
+      return rememberedTabs;
     }
 
     let firstTabs: WorkspaceParent | null = null;
@@ -554,6 +577,25 @@ export class PopoutLayoutEngine {
     return null;
   }
 
+  /** 判斷記憶中的 tabs 群組是否仍存在於指定 sidebar column。 */
+  private isTabsInColumn(win: Window, columnEl: HTMLElement, tabs: WorkspaceParent): boolean {
+    if (tabs.containerEl instanceof HTMLElement && columnEl.contains(tabs.containerEl)) {
+      return true;
+    }
+
+    let found = false;
+    this.workspace.iterateAllLeaves((leaf: WorkspaceLeaf) => {
+      if (found || getWindowOfLeaf(leaf) !== win) return;
+      const extLeaf = leaf as unknown as ExtendedWorkspaceLeaf;
+      if (extLeaf.parent !== tabs) return;
+      const container = extLeaf.containerEl || (leaf.view as { containerEl?: HTMLElement } | null)?.containerEl;
+      if (container instanceof HTMLElement && columnEl.contains(container)) {
+        found = true;
+      }
+    });
+    return found;
+  }
+
   /** 攔截器專用：在指定側欄回傳一個 leaf（欄位不存在則建立），供第三方設定 view state。 */
   async openSideLeaf(win: Window, side: PopoutSide): Promise<WorkspaceLeaf> {
     return this.ensureSideColumn(win, side);
@@ -570,7 +612,7 @@ export class PopoutLayoutEngine {
     const columnEl = this.getColumnElement(win, side);
 
     if (columnEl) {
-      const tabs = this.getSidebarTabsInColumn(win, columnEl);
+      const tabs = this.getSidebarTabsInColumn(win, side, columnEl);
       if (tabs) {
         return this.createLeafInTabs(tabs);
       }
@@ -608,6 +650,22 @@ export class PopoutLayoutEngine {
       state: {},
     });
     return leaf;
+  }
+
+  /** 取得 leaf 所在的已標記 sidebar 側，供三區 pane 記憶使用。 */
+  private getSidebarSideForLeaf(win: Window, leaf: WorkspaceLeaf): PopoutSide | null {
+    if (getWindowOfLeaf(leaf) !== win) return null;
+    const extLeaf = leaf as unknown as ExtendedWorkspaceLeaf;
+    const container = extLeaf.containerEl || (leaf.view as { containerEl?: HTMLElement } | null)?.containerEl;
+    if (!(container instanceof HTMLElement)) return null;
+
+    const column = this.getTopLevelColumnForContainer(container);
+    if (!isSidebarColumnElement(column)) return null;
+    if (column?.classList.contains("mod-left-split")) return "left";
+    if (column?.classList.contains("mod-right-split")) return "right";
+    if (this.getColumnElement(win, "left") === column) return "left";
+    if (this.getColumnElement(win, "right") === column) return "right";
+    return null;
   }
 
   /**
@@ -763,11 +821,13 @@ export class PopoutLayoutEngine {
       : null;
     const activePane = activeTabs ? panes.find((pane) => pane.tabs === activeTabs) : null;
     if (activePane) {
-      this.lastActiveContentPanesByWindow.set(win, activePane.tabs);
+      const remembered = this.lastActivePanesByWindow.get(win) || {};
+      remembered.center = activePane.tabs;
+      this.lastActivePanesByWindow.set(win, remembered);
       return activePane;
     }
 
-    const rememberedTabs = this.lastActiveContentPanesByWindow.get(win);
+    const rememberedTabs = this.lastActivePanesByWindow.get(win)?.center;
     const rememberedPane = rememberedTabs
       ? panes.find((pane) => pane.tabs === rememberedTabs)
       : null;
