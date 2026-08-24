@@ -40,6 +40,8 @@ import { PanelActivityTracker } from "./panel-activity-tracker.js";
 import { IconPickerModal } from "./ui/icon-picker-modal.js";
 import {
   chooseFolderSpaceCreationTarget,
+  createTabInLastSplit,
+  isToolViewType,
   type FolderSpaceCreationCandidate
 } from "./folder-space-routing-policy.js";
 import {
@@ -97,6 +99,7 @@ export interface FolderSpaceViewOptions {
   getAdaptiveCascadeParent?(): boolean;
   getCascadeParentPreset?(): FolderSpacePresetId;
   getDisableFolderNotesInFolderOnlyView?(): boolean;
+  getAlwaysOpenInOtherPanel?(): boolean;
 }
 
 interface InternalTreeItem {
@@ -233,6 +236,7 @@ interface PatchedExplorerView extends InternalExplorerView {
   openSearchInWindow?: (win: Window, query: string) => Promise<WorkspaceLeaf>;
   addAction?(icon: string, title: string, callback: (evt: MouseEvent) => unknown): HTMLElement | null;
   getDisableFolderNotesInFolderOnlyView(): boolean;
+  getAlwaysOpenInOtherPanel(): boolean;
   drillDownStack?: DrillDownStackEntry[];
 }
 
@@ -412,7 +416,47 @@ export function makeLeafUnreusable(leaf: WorkspaceLeaf): void {
  * is never reused as a file-open target.
  */
 export function makeFolderSpaceLeafProtected(leaf: WorkspaceLeaf): void {
-  makeNavigable(leaf);
+  const root = leaf.getRoot?.();
+  const workspace =
+    (leaf as WorkspaceLeaf & { app?: { workspace?: unknown } }).app?.workspace ??
+    leaf.view?.app?.workspace;
+  const isSidebar = Boolean(
+    workspace &&
+      root &&
+      (root === (workspace as { leftSplit?: unknown }).leftSplit ||
+        root === (workspace as { rightSplit?: unknown }).rightSplit)
+  );
+
+  if (isSidebar) {
+    try {
+      Object.defineProperty(leaf, "navigation", {
+        get: () => false,
+        set: () => {},
+        configurable: true,
+        enumerable: true
+      });
+    } catch {
+      (leaf as { navigation?: boolean }).navigation = false;
+    }
+    if (leaf.view) {
+      try {
+        Object.defineProperty(leaf.view, "navigation", {
+          get: () => false,
+          set: () => {},
+          configurable: true,
+          enumerable: true
+        });
+      } catch {
+        (leaf.view as { navigation?: boolean }).navigation = false;
+      }
+    }
+  } else {
+    makeNavigable(leaf);
+    if (leaf.view) {
+      makeNavigable(leaf.view);
+    }
+  }
+
   makeLeafUnreusable(leaf);
   protectLeafFromRebuild(leaf);
 }
@@ -620,6 +664,7 @@ function patchExplorerView(
   view.setFolderIcon = (folderPath: string, icon: string) => options.setFolderIcon?.(folderPath, icon);
   view.openSearchInWindow = options.openSearchInWindow;
   view.getDisableFolderNotesInFolderOnlyView = () => options.getDisableFolderNotesInFolderOnlyView?.() ?? true;
+  view.getAlwaysOpenInOtherPanel = () => options.getAlwaysOpenInOtherPanel?.() ?? true;
   view.getViewType = () => FOLDER_SPACES_VIEW_TYPE;
   view.getIcon = () => getFolderSpaceIcon(options, view.folderPath);
 
@@ -780,6 +825,7 @@ function patchExplorerView(
       if (view.autoRevealFile) {
         view.revealActiveFile();
       }
+      updateTerminalFolderIndicators(view);
       return;
     }
 
@@ -1601,6 +1647,52 @@ function filterByContentMode(view: PatchedExplorerView, items: InternalTreeItem[
   });
 }
 
+/**
+ * 判斷資料夾在當前 view 的設定下是否為「端點（Terminal Node）」：
+ * 1. 深度限制：在 tree 模式下，若資料夾深度已達 depthLimit，無法在當前視圖就地展開。
+ * 2. 內容項目：在當前 contentMode 下，該資料夾內部無可展示的子項目（空資料夾，或純資料夾模式下無子資料夾）。
+ */
+export function isTerminalFolderItem(view: PatchedExplorerView, folder: TFolder): boolean {
+  const rootFolder = getRootFolder(view);
+  if (!rootFolder || folder === rootFolder) {
+    return false;
+  }
+
+  // 深度限制
+  if (view.viewMode === "tree") {
+    const depthLimit = getFolderDepthLimit(view.depthMode);
+    if (depthLimit !== null) {
+      const depth = getFolderDepthFromRoot(rootFolder, folder);
+      if (depth >= depthLimit) {
+        return true;
+      }
+    }
+  }
+
+  // 內容項目
+  const items = view.getSortedFolderItems(folder);
+  return !items || items.length === 0;
+}
+
+export function updateTerminalFolderIndicators(view: PatchedExplorerView): void {
+  if (view.viewMode === "flat" || view.contentMode === "files") {
+    for (const item of Object.values(view.fileItems)) {
+      item?.selfEl?.toggleClass("is-terminal-folder", false);
+    }
+    return;
+  }
+
+  for (const item of Object.values(view.fileItems)) {
+    if (!item?.file || !(item.file instanceof TFolder)) {
+      item?.selfEl?.toggleClass("is-terminal-folder", false);
+      continue;
+    }
+
+    const isTerminal = isTerminalFolderItem(view, item.file);
+    item.selfEl.toggleClass("is-terminal-folder", isTerminal);
+  }
+}
+
 function applyDepthMode(view: PatchedExplorerView): void {
   const rootFolder = getRootFolder(view);
   if (!rootFolder) {
@@ -1614,6 +1706,7 @@ function applyDepthMode(view: PatchedExplorerView): void {
     expandAllFolders(view, rootFolder);
   }
   view.tree.infinityScroll.compute();
+  updateTerminalFolderIndicators(view);
 }
 
 /**
@@ -2225,15 +2318,27 @@ function followParentScopeOnFolderClick(view: PatchedExplorerView, event: MouseE
   const child = manager?.getChildOf(view.panelId);
   const hasFollowingChild = Boolean(child && child.isAlive() && child.followParent);
 
+  const folder = view.app.vault.getAbstractFileByPath(folderPath);
+  const isTerminal = folder instanceof TFolder ? isTerminalFolderItem(view, folder) : true;
+
   if (hasFollowingChild && manager) {
     manager.propagateFrom(view.panelId, folderPath);
-  } else {
-    // 獨立面板（Standalone）或無子面板連動時：點擊資料夾名稱就地下鑽
+  } else if (isTerminal) {
+    // 獨立面板（Standalone）或無子面板連動時：
+    // 若為端點資料夾（已達深度上限或無子項），就地下鑽
     drillDownToFolder(view, folderPath);
   }
+  // 若為獨立面板且非端點資料夾，放行讓原生目錄樹執行展開／收合
+
+  // 攔截 Folder Notes 開啟（除非按住 Mod 鍵）：
+  // 1. 接龍模式下（已驅動子面板）
+  // 2. 端點下鑽時（已執行下鑽）
+  // 3. 純資料夾導覽模式下（專注於目錄導航）
+  const shouldSuppressFolderNote =
+    hasFollowingChild || isTerminal || view.contentMode === "folders";
 
   if (
-    (view.contentMode === "folders" || !hasFollowingChild) &&
+    shouldSuppressFolderNote &&
     view.getDisableFolderNotesInFolderOnlyView() &&
     !Keymap.isModEvent(event)
   ) {
@@ -2243,10 +2348,29 @@ function followParentScopeOnFolderClick(view: PatchedExplorerView, event: MouseE
 
 /**
  * Consumes a folder-name click at the tree container so the parent's own tree
- * does not collapse/expand while it navigates a bound child or drills down.
+ * does not collapse/expand while it navigates a bound child or drills down a terminal folder.
+ * For non-terminal folders without a bound child, we let the click toggle expand/collapse natively.
  */
 function blockParentToggleOnFolderNameClick(view: PatchedExplorerView, event: MouseEvent): void {
-  if (resolveClickedFolderPath(view.navFileContainerEl, view.files, event)) {
+  const folderPath = resolveClickedFolderPath(view.navFileContainerEl, view.files, event);
+  if (!folderPath) {
+    return;
+  }
+
+  const manager = view.bindingManager;
+  const child = manager?.getChildOf(view.panelId);
+  const hasFollowingChild = Boolean(child && child.isAlive() && child.followParent);
+
+  if (hasFollowingChild) {
+    event.preventDefault();
+    event.stopPropagation();
+    return;
+  }
+
+  // 獨立面板：只有當點擊端點資料夾時才阻斷原生開合並轉為下鑽；非端點資料夾則允許原生開合
+  const folder = view.app.vault.getAbstractFileByPath(folderPath);
+  const isTerminal = folder instanceof TFolder ? isTerminalFolderItem(view, folder) : true;
+  if (isTerminal) {
     event.preventDefault();
     event.stopPropagation();
   }
@@ -2495,7 +2619,7 @@ async function openFileInContentArea(
     } else if (requestedPane === "split") {
       leaf = workspace.getLeaf("split");
     } else {
-      leaf = workspace.getLeaf(false);
+      leaf = resolveFileOpenTargetLeaf(view);
     }
 
     if (!leaf) {
@@ -2507,6 +2631,116 @@ async function openFileInContentArea(
     console.warn("[folder-spaces] Unable to open file:", file.path, error);
     new Notice(t("rootUnavailable"));
   }
+}
+
+function resolveFileOpenTargetLeaf(view: PatchedExplorerView): WorkspaceLeaf | null {
+  const currentLeaf = view.leaf;
+  if (!currentLeaf) {
+    return null;
+  }
+
+  const workspace = view.app.workspace;
+  const currentRoot = currentLeaf.getRoot();
+  const sidebarRoots = new Set<unknown>([workspace.leftSplit, workspace.rightSplit]);
+
+  // 1. 如果 Folder Space 位於主視窗的側邊欄 (Left / Right Sidebar)
+  if (sidebarRoots.has(currentRoot)) {
+    const recentRootLeaf = workspace.getMostRecentLeaf(workspace.rootSplit);
+    if (
+      recentRootLeaf &&
+      !recentRootLeaf.getViewState().pinned &&
+      !isToolViewType(recentRootLeaf.getViewState().type)
+    ) {
+      return recentRootLeaf;
+    }
+    return createTabInLastSplit(workspace, workspace.rootSplit, () => workspace.getLeaf("tab"));
+  }
+
+  // 2. 如果 Folder Space 位於 Content Area（主視窗或 Popout 視窗）
+  const tracker = getPanelActivityTracker(workspace);
+  const currentTabGroup = currentLeaf.parent;
+
+  // 檢查是否在 Popout 視窗中
+  const currentWin = currentLeaf.getContainer()?.win;
+  const isPopout = currentWin && currentWin !== window;
+  const popoutEngine = view.popoutLayoutEngine;
+
+  const candidateLeaves: WorkspaceLeaf[] = [];
+  workspace.iterateAllLeaves((leaf) => {
+    if (
+      leaf !== currentLeaf &&
+      leaf.getRoot() === currentRoot &&
+      leaf.parent !== currentTabGroup &&
+      !isToolViewType(leaf.getViewState().type)
+    ) {
+      if (isPopout && popoutEngine && currentWin && popoutEngine.isLeafInSideColumn(currentWin, leaf)) {
+        return;
+      }
+      candidateLeaves.push(leaf);
+    }
+  });
+
+  if (candidateLeaves.length > 0) {
+    candidateLeaves.sort((a, b) => tracker.getLeafActivityScore(b) - tracker.getLeafActivityScore(a));
+    const bestLeaf = candidateLeaves[0];
+    if (bestLeaf) {
+      if (!bestLeaf.getViewState().pinned) {
+        return bestLeaf;
+      }
+
+      if (
+        bestLeaf.parent &&
+        typeof (workspace as unknown as { createLeafInParent?: Function }).createLeafInParent === "function"
+      ) {
+        try {
+          const created = (workspace as unknown as {
+            createLeafInParent: (parent: unknown, index: number) => WorkspaceLeaf;
+          }).createLeafInParent(bestLeaf.parent, -1);
+          if (created) {
+            return created;
+          }
+        } catch {
+          // fallback to bestLeaf
+        }
+      }
+      return bestLeaf;
+    }
+  }
+
+  // 3. 無其他編輯器面板時的處理
+  const alwaysOpenInOtherPanel = view.getAlwaysOpenInOtherPanel();
+  if (alwaysOpenInOtherPanel) {
+    if (typeof workspace.createLeafBySplit === "function") {
+      try {
+        const splitLeaf = workspace.createLeafBySplit(currentLeaf);
+        if (splitLeaf) {
+          return splitLeaf;
+        }
+      } catch {
+        // fallback
+      }
+    }
+    return workspace.getLeaf("split");
+  }
+
+  // 4. 在當前 TabGroup 或當前 Root 中新建分頁
+  if (
+    currentLeaf.parent &&
+    typeof (workspace as unknown as { createLeafInParent?: Function }).createLeafInParent === "function"
+  ) {
+    try {
+      const created = (workspace as unknown as {
+        createLeafInParent: (parent: unknown, index: number) => WorkspaceLeaf;
+      }).createLeafInParent(currentLeaf.parent, -1);
+      if (created) {
+        return created;
+      }
+    } catch {
+      // fallback
+    }
+  }
+
+  return createTabInLastSplit(workspace, currentRoot, () => workspace.getLeaf("tab"));
 }
 
 function isPinnedLeaf(leaf: WorkspaceLeaf): boolean {

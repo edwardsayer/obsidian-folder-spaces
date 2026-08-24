@@ -15,6 +15,9 @@ import {
   chooseFolderSpaceCreationTarget,
   findExistingFolderSpace,
   isSameFolderSpaceScope,
+  resolveContentAreaRouting,
+  createTabInLastSplit,
+  getLastLeafInRoot,
   type FolderSpaceScopeCandidate,
   type PanelCandidate
 } from "../src/folder-space-routing-policy.js";
@@ -281,15 +284,20 @@ test("folder path bar stays non-shrinking and ellipsizes its text child", () => 
 
   assert.match(styles, /\.folder-spaces-folder-path\s*\{[\s\S]*flex:\s*0 0 auto/);
   assert.match(styles, /\.folder-spaces-folder-path-text\s*\{[\s\S]*text-overflow:\s*ellipsis/);
-  assert.match(
+  assert.doesNotMatch(
     styles,
-    /\.folder-spaces-folder-path\.folder-spaces-sync-focus,[\s\S]*\.tree-item-self\.folder-spaces-sync-focus\s*\{[\s\S]*background-color:\s*var\(--background-modifier-hover\)/
+    /\.tree-item-self\.folder-spaces-sync-focus\s*\{[\s\S]*background-color:\s*var\(--background-modifier-hover\)/
+  );
+  assert.doesNotMatch(
+    styles,
+    /\.tree-item-self\.folder-spaces-sync-focus\s*\{[\s\S]*color:\s*var\(--text-accent\)/
   );
   assert.match(
     styles,
     /\.tree-item-self\.folder-spaces-sync-focus \.nav-folder-title-content\s*\{[\s\S]*flex-grow:\s*1/
   );
   assert.match(styles, /\.folder-spaces-sync-source-icon\s*\{[\s\S]*flex:\s*0 0 var\(--icon-xs\)/);
+  assert.match(styles, /\.folder-spaces-sync-source-icon\s*\{[\s\S]*color:\s*var\(--text-accent\)/);
   assert.match(styles, /\.folder-spaces-sync-source-icon\s*\{[\s\S]*height:\s*0/);
   assert.match(styles, /\.folder-spaces-sync-source-icon\s*\{[\s\S]*margin-inline:\s*0/);
   assert.match(
@@ -297,4 +305,217 @@ test("folder path bar stays non-shrinking and ellipsizes its text child", () => 
     /\.tree-item-self\.folder-spaces-sync-has-tail \.folder-spaces-sync-source-icon\s*\{[\s\S]*margin-inline-end:\s*var\(--size-2-1\)/
   );
   assert.match(styles, /\.folder-spaces-sync-source-icon svg\s*\{[\s\S]*position:\s*absolute/);
+  assert.match(
+    styles,
+    /\.folder-spaces-folder-path > \.folder-spaces-status-icon\.is-active\s*\{[\s\S]*color:\s*var\(--text-accent\)/
+  );
+  assert.match(
+    styles,
+    /\.folder-spaces-folder-path > \.folder-spaces-status-icon\.is-active\s*\{[\s\S]*background-color:\s*transparent/
+  );
 });
+
+test("resolveContentAreaRouting routes to other tab groups in content area", () => {
+  const rootSplit = { id: "root-split" };
+  const leftSidebar = { id: "left-sidebar" };
+  const sidebarRoots = new Set([leftSidebar]);
+
+  const currentTabGroup = { id: "group-1" };
+  const otherTabGroup = { id: "group-2" };
+
+  const currentFsLeaf = {
+    id: "fs-leaf",
+    parent: currentTabGroup,
+    root: rootSplit,
+    pinned: false,
+    viewType: "folder-spaces-explorer"
+  };
+
+  const otherNoteLeaf = {
+    id: "note-leaf-1",
+    parent: otherTabGroup,
+    root: rootSplit,
+    pinned: false,
+    viewType: "markdown"
+  };
+
+  const otherPinnedLeaf = {
+    id: "note-leaf-2",
+    parent: otherTabGroup,
+    root: rootSplit,
+    pinned: true,
+    viewType: "markdown"
+  };
+
+  const anotherFsLeaf = {
+    id: "fs-leaf-2",
+    parent: otherTabGroup,
+    root: rootSplit,
+    pinned: false,
+    viewType: "folder-spaces-explorer"
+  };
+
+  const sidebarFsLeaf = {
+    id: "fs-sidebar",
+    parent: { id: "sidebar-group" },
+    root: leftSidebar,
+    pinned: false,
+    viewType: "folder-spaces-explorer"
+  };
+
+  // 1. Sidebar Folder Space -> fallback to native routing
+  const sidebarDecision = resolveContentAreaRouting(
+    sidebarFsLeaf,
+    [sidebarFsLeaf, otherNoteLeaf],
+    () => 1,
+    sidebarRoots,
+    true
+  );
+  assert.deepEqual(sidebarDecision, { kind: "fallback" });
+
+  // 2. Content Area with unpinned note in another tab group -> reuse-leaf
+  const reuseDecision = resolveContentAreaRouting(
+    currentFsLeaf,
+    [currentFsLeaf, otherNoteLeaf],
+    () => 1,
+    sidebarRoots,
+    true
+  );
+  assert.deepEqual(reuseDecision, { kind: "reuse-leaf", leaf: otherNoteLeaf });
+
+  // 3. Content Area with pinned note in another tab group -> new-tab-in-group
+  const newTabDecision = resolveContentAreaRouting(
+    currentFsLeaf,
+    [currentFsLeaf, otherPinnedLeaf],
+    () => 1,
+    sidebarRoots,
+    true
+  );
+  assert.deepEqual(newTabDecision, { kind: "new-tab-in-group", leaf: otherPinnedLeaf });
+
+  // 4. Content Area with only other folder spaces (no editor leaf in other groups) -> split if alwaysOpenInOtherPanel
+  const splitDecision = resolveContentAreaRouting(
+    currentFsLeaf,
+    [currentFsLeaf, anotherFsLeaf],
+    () => 1,
+    sidebarRoots,
+    true
+  );
+  assert.deepEqual(splitDecision, { kind: "split" });
+
+  // 5. Content Area single group, alwaysOpenInOtherPanel = false -> fallback
+  const noSplitDecision = resolveContentAreaRouting(
+    currentFsLeaf,
+    [currentFsLeaf],
+    () => 1,
+    sidebarRoots,
+    false
+  );
+  assert.deepEqual(noSplitDecision, { kind: "fallback" });
+
+  // 6. Content Area multiple candidates selects highest score
+  const scoreMap = new Map([
+    [otherNoteLeaf, 10],
+    [otherPinnedLeaf, 20]
+  ]);
+  const highestScoreDecision = resolveContentAreaRouting(
+    currentFsLeaf,
+    [currentFsLeaf, otherNoteLeaf, otherPinnedLeaf],
+    (leaf) => scoreMap.get(leaf) ?? 0,
+    sidebarRoots,
+    true
+  );
+  assert.deepEqual(highestScoreDecision, { kind: "new-tab-in-group", leaf: otherPinnedLeaf });
+
+  // 7. Content Area excludes tool views and side columns
+  const fileExplorerLeaf = {
+    id: "popout-file-explorer",
+    parent: otherTabGroup,
+    root: rootSplit,
+    pinned: false,
+    viewType: "file-explorer"
+  };
+
+  const sideColumnNoteLeaf = {
+    id: "side-column-leaf",
+    parent: otherTabGroup,
+    root: rootSplit,
+    pinned: false,
+    viewType: "markdown",
+    isSideColumn: true
+  };
+
+  const toolExcludedDecision = resolveContentAreaRouting(
+    currentFsLeaf,
+    [currentFsLeaf, fileExplorerLeaf, sideColumnNoteLeaf],
+    () => 1,
+    sidebarRoots,
+    true
+  );
+  // Both file-explorer and sideColumnNoteLeaf are excluded -> falls through to split
+  assert.deepEqual(toolExcludedDecision, { kind: "split" });
+});
+
+test("createTabInLastSplit finds last leaf and appends tab or falls back to first leaf creator", () => {
+  const root = { id: "root" };
+  const otherRoot = { id: "other-root" };
+  const parentSplit = { id: "parent-split" };
+
+  const leaf1 = {
+    id: "leaf-1",
+    parent: parentSplit,
+    getRoot: () => root
+  };
+  const leaf2 = {
+    id: "leaf-2",
+    parent: parentSplit,
+    getRoot: () => root
+  };
+  const leafOther = {
+    id: "leaf-other",
+    parent: { id: "other-parent" },
+    getRoot: () => otherRoot
+  };
+
+  const createdLeaf = { id: "created-leaf", getRoot: () => root };
+  let insertedInParent: unknown = null;
+  let insertedIndex: number | null = null;
+
+  const mockWorkspace = {
+    iterateAllLeaves(cb: (leaf: typeof leaf1) => unknown) {
+      cb(leaf1);
+      cb(leafOther);
+      cb(leaf2);
+    },
+    createLeafInParent(parent: unknown, index: number) {
+      insertedInParent = parent;
+      insertedIndex = index;
+      return createdLeaf;
+    }
+  };
+
+  const last = getLastLeafInRoot(mockWorkspace, root);
+  assert.equal(last, leaf2);
+
+  const res = createTabInLastSplit(mockWorkspace, root, () => ({ id: "first-leaf", getRoot: () => root }));
+  assert.equal(res, createdLeaf);
+  assert.equal(insertedInParent, parentSplit);
+  assert.equal(insertedIndex, -1);
+
+  // Fallback when root has no leaves
+  let firstCreated = false;
+  const emptyWorkspace = {
+    iterateAllLeaves(_cb: unknown) {},
+    createLeafInParent(_parent: unknown, _index: number) {
+      return createdLeaf;
+    }
+  };
+  const fallbackRes = createTabInLastSplit(emptyWorkspace, root, () => {
+    firstCreated = true;
+    return { id: "fallback", getRoot: () => root };
+  });
+  assert.equal(fallbackRes.id, "fallback");
+  assert.equal(firstCreated, true);
+});
+
+

@@ -36,6 +36,7 @@ export interface FolderSpacesSettings {
   cascadeParentPreset: FolderSpacePresetId;
   disableFolderNotesInFolderOnlyView: boolean;
   folderSortOrders: Record<string, FolderSpaceSortOrder>;
+  alwaysOpenInOtherPanel: boolean;
 }
 
 export const DEFAULT_SETTINGS: FolderSpacesSettings = {
@@ -57,7 +58,8 @@ export const DEFAULT_SETTINGS: FolderSpacesSettings = {
   adaptiveCascadeParent: true,
   cascadeParentPreset: "navigate",
   disableFolderNotesInFolderOnlyView: true,
-  folderSortOrders: {}
+  folderSortOrders: {},
+  alwaysOpenInOtherPanel: true
 };
 
 export function normalizeSettings(data: unknown): FolderSpacesSettings {
@@ -90,7 +92,11 @@ export function normalizeSettings(data: unknown): FolderSpacesSettings {
       settings.disableFolderNotesInFolderOnlyView,
       DEFAULT_SETTINGS.disableFolderNotesInFolderOnlyView
     ),
-    folderSortOrders: normalizeFolderSortOrders(settings.folderSortOrders)
+    folderSortOrders: normalizeFolderSortOrders(settings.folderSortOrders),
+    alwaysOpenInOtherPanel: normalizeBoolean(
+      settings.alwaysOpenInOtherPanel,
+      DEFAULT_SETTINGS.alwaysOpenInOtherPanel
+    )
   };
 }
 

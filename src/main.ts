@@ -6,9 +6,7 @@ import {
   View,
   debounce,
   setIcon,
-  type WorkspaceLeaf,
-  type WorkspaceParent,
-  type WorkspaceSplit
+  type WorkspaceLeaf
 } from "obsidian";
 
 import {
@@ -31,7 +29,11 @@ import {
   updateFolderSpaceLeafTooltip
 } from "./folder-space-explorer.js";
 import { PanelBindingManager, generatePanelId, type PanelBindingView } from "./panel-binding.js";
-import { findExistingFolderSpace, type FolderSpaceScopeCandidate } from "./folder-space-routing-policy.js";
+import {
+  findExistingFolderSpace,
+  createTabInLastSplit,
+  type FolderSpaceScopeCandidate
+} from "./folder-space-routing-policy.js";
 import {
   getWindowOfLeaf,
   isPopoutWindow,
@@ -161,7 +163,8 @@ export default class FolderSpacesPlugin extends Plugin {
           },
           getAdaptiveCascadeParent: () => this.settings.adaptiveCascadeParent,
           getCascadeParentPreset: () => this.settings.cascadeParentPreset,
-          getDisableFolderNotesInFolderOnlyView: () => this.settings.disableFolderNotesInFolderOnlyView
+          getDisableFolderNotesInFolderOnlyView: () => this.settings.disableFolderNotesInFolderOnlyView,
+          getAlwaysOpenInOtherPanel: () => this.settings.alwaysOpenInOtherPanel
         })
     );
 
@@ -770,7 +773,6 @@ export default class FolderSpacesPlugin extends Plugin {
   private refreshFolderSpaceNavigation(): void {
     for (const leaf of getLeavesOfTypeAcrossWindows(this.app.workspace, FOLDER_SPACES_VIEW_TYPE)) {
       makeFolderSpaceLeafProtected(leaf);
-      makeNavigable(leaf.view);
     }
   }
 
@@ -904,17 +906,6 @@ export default class FolderSpacesPlugin extends Plugin {
   }
 }
 
-function createTabInLastSplit(
-  workspace: FolderSpacesPlugin["app"]["workspace"],
-  root: WorkspaceParent,
-  createFirstLeaf: () => WorkspaceLeaf
-): WorkspaceLeaf {
-  const lastLeaf = getLastLeafInRoot(workspace, root);
-  return lastLeaf
-    ? workspace.createLeafInParent(lastLeaf.parent as WorkspaceSplit, -1)
-    : createFirstLeaf();
-}
-
 function getLeavesOfTypeAcrossWindows(
   workspace: FolderSpacesPlugin["app"]["workspace"],
   type: string
@@ -926,19 +917,6 @@ function getLeavesOfTypeAcrossWindows(
     }
   });
   return leaves;
-}
-
-function getLastLeafInRoot(
-  workspace: FolderSpacesPlugin["app"]["workspace"],
-  root: WorkspaceParent
-): WorkspaceLeaf | null {
-  let lastLeaf: WorkspaceLeaf | null = null;
-  workspace.iterateAllLeaves((leaf) => {
-    if (leaf.getRoot() === root) {
-      lastLeaf = leaf;
-    }
-  });
-  return lastLeaf;
 }
 
 interface NativeExplorerViewLike {

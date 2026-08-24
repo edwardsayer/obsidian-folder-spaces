@@ -101,25 +101,30 @@ test("normalizeSettings defaults and normalizes ribbon and follow-parent setting
   assert.equal(defaults.showRibbonIcon, true);
   assert.equal(defaults.defaultFollowParentSameWindow, true);
   assert.equal(defaults.defaultFollowParentNewWindow, false);
+  assert.equal(defaults.alwaysOpenInOtherPanel, true);
 
   const custom = normalizeSettings({
     showRibbonIcon: false,
     defaultFollowParentSameWindow: false,
-    defaultFollowParentNewWindow: true
+    defaultFollowParentNewWindow: true,
+    alwaysOpenInOtherPanel: false
   });
   assert.equal(custom.showRibbonIcon, false);
   assert.equal(custom.defaultFollowParentSameWindow, false);
   assert.equal(custom.defaultFollowParentNewWindow, true);
+  assert.equal(custom.alwaysOpenInOtherPanel, false);
 
   // Non-boolean values fall back to the defaults
   const weird = normalizeSettings({
     showRibbonIcon: "yes",
     defaultFollowParentSameWindow: 1,
-    defaultFollowParentNewWindow: "no"
+    defaultFollowParentNewWindow: "no",
+    alwaysOpenInOtherPanel: "false"
   });
   assert.equal(weird.showRibbonIcon, true);
   assert.equal(weird.defaultFollowParentSameWindow, true);
   assert.equal(weird.defaultFollowParentNewWindow, false);
+  assert.equal(weird.alwaysOpenInOtherPanel, true);
 });
 
 test("getDefaultFollowParent picks the per-window behavior", () => {

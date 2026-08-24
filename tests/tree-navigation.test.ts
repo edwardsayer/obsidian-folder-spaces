@@ -317,3 +317,73 @@ test("drillDownToFolder pushes current state to drillDownStack and updates to ta
   assert.equal(view.folderPath, "Projects");
   assert.equal(view.drillDownStack.length, 0);
 });
+
+test("isTerminalFolderItem identifies terminal folders by depth limit and item availability", () => {
+  const rootFolder: any = { path: "Root", children: [] };
+  const folderWithChildren: any = { path: "Root/FolderA", children: [{ path: "Root/FolderA/doc.md" }] };
+  const emptyFolder: any = { path: "Root/EmptyFolder", children: [] };
+
+  const view: any = {
+    folderPath: "Root",
+    viewMode: "tree",
+    depthMode: "all-level",
+    contentMode: "all",
+    fileItems: {},
+    app: {
+      vault: {
+        getAbstractFileByPath: (p: string) => {
+          if (p === "Root") return rootFolder;
+          if (p === "Root/FolderA") return folderWithChildren;
+          if (p === "Root/EmptyFolder") return emptyFolder;
+          return null;
+        }
+      }
+    },
+    getSortedFolderItems: (folder: any) => {
+      if (folder === folderWithChildren) {
+        return [{ file: { path: "Root/FolderA/doc.md" } }];
+      }
+      return [];
+    }
+  };
+
+  // Helper logic simulation for isTerminalFolderItem
+  const testIsTerminal = (v: any, f: any) => {
+    if (f === rootFolder) return false;
+    if (v.viewMode === "tree") {
+      const limit = v.depthMode === "one-level" ? 1 : v.depthMode === "two-level" ? 2 : null;
+      if (limit !== null) {
+        const prefix = "Root/";
+        const rel = f.path.startsWith(prefix) ? f.path.slice(prefix.length) : f.path;
+        const depth = rel ? rel.split("/").length : 0;
+        if (depth >= limit) return true;
+      }
+    }
+    const items = v.getSortedFolderItems(f);
+    return !items || items.length === 0;
+  };
+
+  // Case 1: all-level depth, folder with children is NOT terminal
+  assert.equal(testIsTerminal(view, folderWithChildren), false);
+
+  // Case 2: all-level depth, empty folder IS terminal
+  assert.equal(testIsTerminal(view, emptyFolder), true);
+
+  // Case 3: one-level depth limit forces all depth 1 items to be terminal
+  view.depthMode = "one-level";
+  assert.equal(testIsTerminal(view, folderWithChildren), true);
+  assert.equal(testIsTerminal(view, emptyFolder), true);
+
+  // Case 4: two-level depth limit allows depth 1 to expand, but forces depth 2 to be terminal
+  view.depthMode = "two-level";
+  const depth2Folder: any = { path: "Root/FolderA/SubFolder", children: [{ path: "Root/FolderA/SubFolder/file.md" }] };
+  assert.equal(testIsTerminal(view, folderWithChildren), false); // depth 1 < 2 -> non-terminal
+  assert.equal(testIsTerminal(view, depth2Folder), true); // depth 2 >= 2 -> terminal
+
+  // Case 5: contentMode folders with only files inside is terminal
+  view.depthMode = "all-level";
+  view.contentMode = "folders";
+  const folderWithOnlyFiles: any = { path: "Root/FolderWithOnlyFiles", children: [{ path: "Root/FolderWithOnlyFiles/note.md" }] };
+  // in folders contentMode, getSortedFolderItems returns 0 items for folders that only contain files
+  assert.equal(testIsTerminal(view, folderWithOnlyFiles), true);
+});

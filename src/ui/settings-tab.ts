@@ -110,6 +110,19 @@ export class FolderSpacesSettingTab extends PluginSettingTab {
         });
     });
 
+    this.createSettingIn(generalGroup, (s) => {
+      s.setName(t("settingsAlwaysOpenInOtherPanelName"))
+        .setDesc(t("settingsAlwaysOpenInOtherPanelDesc"))
+        .addToggle((toggle) => {
+          toggle.setValue(this.plugin.settings.alwaysOpenInOtherPanel).onChange(async (value) => {
+            await this.plugin.updateSettings({
+              ...this.plugin.settings,
+              alwaysOpenInOtherPanel: value
+            });
+          });
+        });
+    });
+
     // ===== 預設開啟位置 =====
     new Setting(containerEl).setName(t("settingsDefaultOpenLocationName")).setHeading();
     const locationGroup = this.createGroup(containerEl) ?? containerEl;
@@ -164,7 +177,7 @@ export class FolderSpacesSettingTab extends PluginSettingTab {
       }
     );
 
-    // ===== 檢視預設集 =====
+    // ===== 3. 檢視預設集 =====
     new Setting(containerEl).setName(t("presetSection")).setHeading();
     const presetGroup = this.createGroup(containerEl) ?? containerEl;
 
@@ -199,52 +212,6 @@ export class FolderSpacesSettingTab extends PluginSettingTab {
       }
     );
 
-    renderPresetDropdown(
-      presetGroup,
-      t("settingsDefaultChildPresetName"),
-      t("settingsDefaultChildPresetDesc"),
-      this.plugin.settings.defaultChildPreset,
-      (id) => {
-        void this.plugin.updateSettings({ ...this.plugin.settings, defaultChildPreset: id });
-      }
-    );
-
-    this.createSettingIn(presetGroup, (s) => {
-      s.setName(t("settingsAutoApplyChildPresetName"))
-        .setDesc(t("settingsAutoApplyChildPresetDesc"))
-        .addToggle((toggle) => {
-          toggle.setValue(this.plugin.settings.autoApplyChildPreset).onChange(async (value) => {
-            await this.plugin.updateSettings({
-              ...this.plugin.settings,
-              autoApplyChildPreset: value
-            });
-          });
-        });
-    });
-
-    this.createSettingIn(presetGroup, (s) => {
-      s.setName(t("settingsAdaptiveCascadeParentName"))
-        .setDesc(t("settingsAdaptiveCascadeParentDesc"))
-        .addToggle((toggle) => {
-          toggle.setValue(this.plugin.settings.adaptiveCascadeParent).onChange(async (value) => {
-            await this.plugin.updateSettings({
-              ...this.plugin.settings,
-              adaptiveCascadeParent: value
-            });
-          });
-        });
-    });
-
-    renderPresetDropdown(
-      presetGroup,
-      t("settingsCascadeParentPresetName"),
-      t("settingsCascadeParentPresetDesc"),
-      this.plugin.settings.cascadeParentPreset,
-      (id) => {
-        void this.plugin.updateSettings({ ...this.plugin.settings, cascadeParentPreset: id });
-      }
-    );
-
     this.createSettingIn(presetGroup, (s) => {
       s.setName(t("settingsDisableFolderNotesInFolderOnlyName"))
         .setDesc(t("settingsDisableFolderNotesInFolderOnlyDesc"))
@@ -258,11 +225,57 @@ export class FolderSpacesSettingTab extends PluginSettingTab {
         });
     });
 
-    // ===== 跟隨父面板 =====
-    new Setting(containerEl).setName(t("settingsDefaultFollowParentName")).setHeading();
-    const followParentGroup = this.createGroup(containerEl) ?? containerEl;
+    // ===== 4. 雙面板接龍與連動 =====
+    new Setting(containerEl).setName(t("settingsCascadeSection")).setHeading();
+    const cascadeGroup = this.createGroup(containerEl) ?? containerEl;
 
-    this.createSettingIn(followParentGroup, (s) => {
+    renderPresetDropdown(
+      cascadeGroup,
+      t("settingsDefaultChildPresetName"),
+      t("settingsDefaultChildPresetDesc"),
+      this.plugin.settings.defaultChildPreset,
+      (id) => {
+        void this.plugin.updateSettings({ ...this.plugin.settings, defaultChildPreset: id });
+      }
+    );
+
+    this.createSettingIn(cascadeGroup, (s) => {
+      s.setName(t("settingsAutoApplyChildPresetName"))
+        .setDesc(t("settingsAutoApplyChildPresetDesc"))
+        .addToggle((toggle) => {
+          toggle.setValue(this.plugin.settings.autoApplyChildPreset).onChange(async (value) => {
+            await this.plugin.updateSettings({
+              ...this.plugin.settings,
+              autoApplyChildPreset: value
+            });
+          });
+        });
+    });
+
+    this.createSettingIn(cascadeGroup, (s) => {
+      s.setName(t("settingsAdaptiveCascadeParentName"))
+        .setDesc(t("settingsAdaptiveCascadeParentDesc"))
+        .addToggle((toggle) => {
+          toggle.setValue(this.plugin.settings.adaptiveCascadeParent).onChange(async (value) => {
+            await this.plugin.updateSettings({
+              ...this.plugin.settings,
+              adaptiveCascadeParent: value
+            });
+          });
+        });
+    });
+
+    renderPresetDropdown(
+      cascadeGroup,
+      t("settingsCascadeParentPresetName"),
+      t("settingsCascadeParentPresetDesc"),
+      this.plugin.settings.cascadeParentPreset,
+      (id) => {
+        void this.plugin.updateSettings({ ...this.plugin.settings, cascadeParentPreset: id });
+      }
+    );
+
+    this.createSettingIn(cascadeGroup, (s) => {
       s.setName(t("settingsSameWindowName"))
         .setDesc(t("settingsSameWindowDesc"))
         .addToggle((toggle) => {
@@ -275,7 +288,7 @@ export class FolderSpacesSettingTab extends PluginSettingTab {
         });
     });
 
-    this.createSettingIn(followParentGroup, (s) => {
+    this.createSettingIn(cascadeGroup, (s) => {
       s.setName(t("settingsNewWindowName"))
         .setDesc(t("settingsNewWindowDesc"))
         .addToggle((toggle) => {
@@ -288,7 +301,7 @@ export class FolderSpacesSettingTab extends PluginSettingTab {
         });
     });
 
-    // ===== 預設集規格對照表 =====
+    // ===== 5. 預設集規格對照表 =====
     new Setting(containerEl)
       .setName(t("settingsPresetsReferenceHeading"))
       .setDesc(t("settingsPresetsReferenceDesc"))
@@ -297,6 +310,9 @@ export class FolderSpacesSettingTab extends PluginSettingTab {
 
     this.createSettingIn(referenceGroup, (s) => {
       s.settingEl.addClass("folder-spaces-presets-reference-setting");
+      s.infoEl.remove();
+      s.controlEl.remove();
+
       const tableContainer = s.settingEl.createDiv({ cls: "folder-spaces-presets-table-container" });
       const table = tableContainer.createEl("table", { cls: "folder-spaces-presets-table" });
 
@@ -310,8 +326,8 @@ export class FolderSpacesSettingTab extends PluginSettingTab {
       const tbody = table.createEl("tbody");
       for (const preset of FOLDER_SPACE_PRESETS) {
         const row = tbody.createEl("tr");
-        const nameCell = row.createEl("td");
-        nameCell.createEl("strong", { text: presetLabel(preset.id) });
+        const nameCell = row.createEl("td", { cls: "folder-spaces-preset-name" });
+        nameCell.setText(presetLabel(preset.id));
 
         row.createEl("td", { text: preset.viewMode === "tree" ? t("actionTreeView") : t("actionFlatView") });
         row.createEl("td", {

@@ -95,7 +95,10 @@ type LocaleKey =
   | "settingsPresetsReferenceHeading"
   | "settingsPresetsReferenceDesc"
   | "settingsDisableFolderNotesInFolderOnlyName"
-  | "settingsDisableFolderNotesInFolderOnlyDesc";
+  | "settingsDisableFolderNotesInFolderOnlyDesc"
+  | "settingsCascadeSection"
+  | "settingsAlwaysOpenInOtherPanelName"
+  | "settingsAlwaysOpenInOtherPanelDesc";
 
 type LocaleTable = Record<LocaleKey, string>;
 
@@ -170,12 +173,12 @@ const ENGLISH: LocaleTable = {
     "Automatically switch parent panels to a folder-only navigation preset when a child panel is attached.",
   settingsCascadeParentPresetName: "Parent panel navigation preset",
   settingsCascadeParentPresetDesc: "Preset applied to the parent panel when child panels are active.",
-  presetExplorer: "Preset: Explorer",
-  presetNavigate: "Preset: Navigate",
-  presetColumns: "Preset: Columns",
-  presetContents: "Preset: Contents",
-  presetFiles: "Preset: Files",
-  presetContext: "Preset: Context",
+  presetExplorer: "Explorer",
+  presetNavigate: "Navigate",
+  presetColumns: "Columns",
+  presetContents: "Contents",
+  presetFiles: "Files",
+  presetContext: "Context",
   presetCustom: "Custom",
   presetSection: "Preset",
   actionFilter: "Filter files",
@@ -195,9 +198,13 @@ const ENGLISH: LocaleTable = {
   actionOpenSettings: "Open Folder Spaces settings",
   settingsPresetsReferenceHeading: "Preset configurations reference",
   settingsPresetsReferenceDesc: "Overview of the 6 built-in Folder Space view presets and their parameters.",
-  settingsDisableFolderNotesInFolderOnlyName: "Disable folder notes in folder-only views",
+  settingsDisableFolderNotesInFolderOnlyName: "Disable folder notes in folder-only view",
   settingsDisableFolderNotesInFolderOnlyDesc:
-    "When a panel displays only folders (e.g. Navigate or Columns preset), clicking a folder navigates without opening its folder note."
+    "In folder-only navigation (e.g. Navigate preset) or drill-down, clicking a folder focuses on hierarchy navigation. Mod-click (Ctrl/Cmd) still opens the folder note.",
+  settingsCascadeSection: "Cascade & linking",
+  settingsAlwaysOpenInOtherPanelName: "Always open in other panel",
+  settingsAlwaysOpenInOtherPanelDesc:
+    "When using Folder Space in the editor area, open files in an adjacent panel instead of creating a tab in the same group. If no other panel exists, automatically splits a new panel."
 };
 
 const TRADITIONAL_CHINESE: LocaleTable = {
@@ -271,12 +278,12 @@ const TRADITIONAL_CHINESE: LocaleTable = {
     "當有子面板連動時，父面板自動切換為純目錄導覽模式；子面板關閉時自動還原。",
   settingsCascadeParentPresetName: "父面板導覽預設集",
   settingsCascadeParentPresetDesc: "有子面板連動時父面板套用的導覽預設集。",
-  presetExplorer: "預設集：檔案總管",
-  presetNavigate: "預設集：導覽",
-  presetColumns: "預設集：欄位",
-  presetContents: "預設集：內容",
-  presetFiles: "預設集：檔案",
-  presetContext: "預設集：脈絡",
+  presetExplorer: "檔案總管",
+  presetNavigate: "導覽",
+  presetColumns: "欄位",
+  presetContents: "內容",
+  presetFiles: "檔案",
+  presetContext: "脈絡",
   presetCustom: "自訂",
   presetSection: "檢視預設集",
   actionFilter: "過濾檔案",
@@ -298,7 +305,11 @@ const TRADITIONAL_CHINESE: LocaleTable = {
   settingsPresetsReferenceDesc: "Folder Space 6 大內建檢視預設集的維度參數與說明。",
   settingsDisableFolderNotesInFolderOnlyName: "在純資料夾檢視中停用資料夾筆記",
   settingsDisableFolderNotesInFolderOnlyDesc:
-    "當面板設定為僅顯示資料夾時（如導覽或欄位預設集），點擊資料夾名稱僅進行導覽連動，不觸發第三方資料夾筆記外掛開啟筆記。"
+    "在純資料夾導覽（如 Navigate 預設集）或下鑽時，點擊資料夾名稱專注於層級導航，按住 Mod (Ctrl/Cmd) 點擊仍可開啟資料夾筆記。",
+  settingsCascadeSection: "雙面板接龍與連動",
+  settingsAlwaysOpenInOtherPanelName: "總是開啟於其他面板",
+  settingsAlwaysOpenInOtherPanelDesc:
+    "在編輯區使用 Folder Space 時，將檔案開啟於相鄰的其他面板而非在同一分頁組建立新分頁；若無其他面板則自動分割出新面板。"
 };
 
 const SIMPLIFIED_CHINESE: LocaleTable = {
@@ -372,12 +383,12 @@ const SIMPLIFIED_CHINESE: LocaleTable = {
     "当有子面板联动时，父面板自动切换为纯目录导航模式；子面板关闭时自动还原。",
   settingsCascadeParentPresetName: "父面板导航预设",
   settingsCascadeParentPresetDesc: "有子面板联动时父面板应用的导航预设。",
-  presetExplorer: "预设：文件列表",
-  presetNavigate: "预设：导航",
-  presetColumns: "预设：栏目",
-  presetContents: "预设：内容",
-  presetFiles: "预设：文件",
-  presetContext: "预设：脉络",
+  presetExplorer: "文件列表",
+  presetNavigate: "导航",
+  presetColumns: "栏目",
+  presetContents: "内容",
+  presetFiles: "文件",
+  presetContext: "脉络",
   presetCustom: "自定义",
   presetSection: "视图预设",
   actionFilter: "筛选文件",
@@ -399,7 +410,11 @@ const SIMPLIFIED_CHINESE: LocaleTable = {
   settingsPresetsReferenceDesc: "Folder Space 6 大内置视图预设的维度参数与说明。",
   settingsDisableFolderNotesInFolderOnlyName: "在纯文件夹视图中禁用文件夹笔记",
   settingsDisableFolderNotesInFolderOnlyDesc:
-    "当面板设置为仅显示文件夹时（如导航或栏目预设），点击文件夹名称仅进行导航联动，不触发第三方文件夹笔记插件打开笔记。"
+    "在纯文件夹导航（如 Navigate 预设集）或下钻时，点击文件夹名称专注于层级导航，按住 Mod (Ctrl/Cmd) 点击仍可打开文件夹笔记。",
+  settingsCascadeSection: "双面板接龙与连动",
+  settingsAlwaysOpenInOtherPanelName: "总是打开于其他面板",
+  settingsAlwaysOpenInOtherPanelDesc:
+    "在编辑区使用 Folder Space 时，将文件打开于相邻的其他面板而非在同一标签页组新建标签；若无其他面板则自动分割出新面板。"
 };
 
 function safeGetLanguage(): string {

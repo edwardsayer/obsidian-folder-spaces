@@ -27,13 +27,7 @@
   background-color: transparent;
 }
 
-.folder-spaces-folder-path.folder-spaces-sync-focus,
-.tree-item-self.folder-spaces-sync-focus {
-  color: var(--text-accent);
-  background-color: var(--background-modifier-hover);
-  font-weight: 600;
-}
-
+/* 父子連動目標項目：字體不加 Accent 顏色，背景不特別 highlight，由右側連結符號加 Accent 標示 */
 .tree-item-self.folder-spaces-sync-focus .nav-folder-title-content {
   flex-grow: 1;
   min-width: 0;
@@ -281,6 +275,17 @@
   color: var(--text-muted);
 }
 
+/* 父子連動狀態下的連結圖示：符號加 Accent 色，但背景不特別 highlight，hover 時正常顯示淺底色 */
+.folder-spaces-folder-path > .folder-spaces-status-icon.is-active {
+  color: var(--text-accent);
+  background-color: transparent;
+}
+
+.folder-spaces-folder-path > .folder-spaces-status-icon.is-active:hover {
+  color: var(--text-accent);
+  background-color: var(--background-modifier-hover);
+}
+
 .folder-spaces-action-btn.is-static {
   pointer-events: none;
   cursor: default;
@@ -297,32 +302,96 @@
   background-color: var(--background-modifier-hover);
 }
 
+/* 端點資料夾標記 (Terminal Folder Indicator) */
+.tree-item-self.is-terminal-folder .collapse-icon svg {
+  display: none !important;
+}
+
+.tree-item-self.is-terminal-folder .collapse-icon::after {
+  content: "";
+  display: block;
+  width: 5px;
+  height: 5px;
+  border-radius: 1px;
+  background-color: var(--text-faint);
+  margin: auto;
+  opacity: 0.85;
+  transition: background-color 0.15s ease, transform 0.15s ease;
+}
+
+.tree-item-self.is-terminal-folder:hover .collapse-icon::after {
+  background-color: var(--text-muted);
+  transform: scale(1.15);
+}
+
 /* 預設集規格對照表 (Presets Reference Table in Settings) */
+.setting-item.folder-spaces-presets-reference-setting {
+  display: block;
+  padding: var(--size-2-2) 0;
+  border-top: none;
+}
+
 .folder-spaces-presets-table-container {
   width: 100%;
   overflow-x: auto;
-  margin-top: var(--size-4-1);
+  margin: 0;
 }
 
 .folder-spaces-presets-table {
   width: 100%;
   border-collapse: collapse;
   font-size: var(--font-ui-small);
+  line-height: var(--line-height-normal);
+  border: none;
 }
 
 .folder-spaces-presets-table th,
 .folder-spaces-presets-table td {
   padding: var(--size-2-2) var(--size-4-2);
   text-align: start;
+  border: none;
   border-bottom: 1px solid var(--background-modifier-border);
 }
 
-.folder-spaces-presets-table th {
-  color: var(--text-muted);
-  font-weight: 600;
+.folder-spaces-presets-table thead tr {
+  background-color: var(--interactive-normal);
 }
 
-.folder-spaces-presets-table tr:last-child td {
+.folder-spaces-presets-table th {
+  color: var(--text-normal);
+  font-weight: var(--font-bold, 700);
+  font-size: var(--font-ui-smaller);
+  border-bottom: none;
+}
+
+.folder-spaces-presets-table thead th:first-child {
+  border-top-left-radius: var(--radius-s);
+  border-bottom-left-radius: var(--radius-s);
+}
+
+.folder-spaces-presets-table thead th:last-child {
+  border-top-right-radius: var(--radius-s);
+  border-bottom-right-radius: var(--radius-s);
+}
+
+.folder-spaces-presets-table tbody tr {
+  transition: background-color 0.15s ease;
+}
+
+.folder-spaces-presets-table tbody tr:hover td {
+  background-color: var(--background-modifier-hover);
+}
+
+.folder-spaces-presets-table td {
+  color: var(--text-muted);
+}
+
+.folder-spaces-presets-table td.folder-spaces-preset-name {
+  color: var(--text-normal);
+  font-weight: var(--font-medium);
+}
+
+.folder-spaces-presets-table tbody tr:last-child td {
   border-bottom: none;
 }
 

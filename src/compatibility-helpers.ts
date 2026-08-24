@@ -152,6 +152,31 @@ export function makeNavigable(target: unknown): boolean {
     return false;
   }
 
+  const anyTarget = target as {
+    getRoot?: () => unknown;
+    leaf?: { getRoot?: () => unknown; app?: { workspace?: unknown } };
+    app?: { workspace?: unknown };
+  };
+  const root = anyTarget.getRoot?.() ?? anyTarget.leaf?.getRoot?.();
+  const workspace =
+    (anyTarget.app?.workspace as { leftSplit?: unknown; rightSplit?: unknown } | undefined) ??
+    (anyTarget.leaf?.app?.workspace as { leftSplit?: unknown; rightSplit?: unknown } | undefined);
+
+  if (workspace && root && (root === workspace.leftSplit || root === workspace.rightSplit)) {
+    try {
+      Object.defineProperty(target, "navigation", {
+        get: () => false,
+        set: () => {},
+        configurable: true,
+        enumerable: true
+      });
+      return false;
+    } catch {
+      (target as { navigation?: boolean }).navigation = false;
+      return false;
+    }
+  }
+
   const navigableTarget = target as { navigation?: boolean };
 
   try {

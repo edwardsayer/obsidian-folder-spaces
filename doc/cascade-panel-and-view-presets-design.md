@@ -117,21 +117,21 @@ stateDiagram-v2
 
 ## 5. 設定選項頁設計 (Settings Tab &amp; UI Architecture)
 
-選項頁採用 Obsidian 1.12.7+ 原生 `SettingGroup` 體系，已完全移除過時且冗餘的「Display Options」群組，精簡為 4 個標準群組：
+選項頁採用 Obsidian 1.12.7+ 原生 `SettingGroup` 體系，依高內聚職責重組為 4 個標準群組與規格對照表：
 
 1. **一般設定（General）**：
   - 顯示功能區圖示（`showRibbonIcon` Toggle）
 2. **預設開啟位置（Default open location）**：
   - 主視窗預設開啟位置（`defaultOpenLocationMain` Dropdown）
   - 彈出視窗預設開啟位置（`defaultOpenLocationPopout` Dropdown）
-3. **檢視預設集（Presets）**：
-  - 預設檢視預設集（`defaultPreset` Dropdown，預設 `explorer`）
+3. **檢視預設集（View Presets）**：
+  - 獨立面板預設集（`defaultPreset` Dropdown，預設 `explorer`）
+  - 在純資料夾檢視中停用資料夾筆記（`disableFolderNotesInFolderOnlyView` Toggle，預設 `true`）
+4. **雙面板接龍與連動（Cascade &amp; Linking）**：
   - 預設子面板檢視預設集（`defaultChildPreset` Dropdown，預設 `contents`）
   - 自動套用子面板預設集（`autoApplyChildPreset` Toggle）
   - 接龍自適應父面板模式（`adaptiveCascadeParent` Toggle）
   - 父面板導覽預設集（`cascadeParentPreset` Dropdown，預設 `navigate`）
-  - 在純資料夾檢視中停用資料夾筆記（`disableFolderNotesInFolderOnlyView` Toggle，預設 `true`）
-4. **跟隨父面板（Follow parent panel）**：
   - 同視窗連動開關（`defaultFollowParentSameWindow` Toggle）
   - 新視窗連動開關（`defaultFollowParentNewWindow` Toggle）
 5. **預設集規格對照表（Presets Reference Table）**：
@@ -149,14 +149,32 @@ stateDiagram-v2
 - **純淨導覽**：在 `contentMode === "folders"` 的導覽面板中（如 Navigate, Columns, Context），點擊資料夾名稱時在 Window Capture 階段呼叫 `event.stopImmediatePropagation()` 阻斷第三方 Folder Notes 外掛開啟筆記分頁，保持導覽流暢。
 - **修飾鍵放行**：按住 `Mod` 鍵（`Ctrl` / `Cmd`）點擊時自動放行，保留使用者開啟筆記之進階操作。
 
-### 6.3 終端資料夾節點就地縮放/下鑽 (In-place Grid & Folder Re-scoping)
-- **下鑽觸發機制**：
-  - **獨立面板/無連動子面板**：普通點擊資料夾名稱直接進行就地下鑽（Drill-down），以該資料夾作為面板的臨時 root path。
-  - **有連動子面板時**：普通點擊負責連動下傳至子面板，**長按（Long Press 450ms）** 則觸發父面板本身的就地下鑽。
-- **返回鍵與狀態圖示替換**：
-  - 下鑽後，路徑列最左側的圖示切換為 **返回箭頭（`lucide-arrow-left`）**，滑鼠懸停顯示 pointer 與按鈕反白效果。
-  - 點擊返回鍵逐層回退（Pop `drillDownStack`），回退至頂層時自動復原原圖示（Link 圖示或 Folder 圖示）。
-### 6.4 設定生命週期管理與孤兒資料清理 (Settings Lifecycle & Orphan Cleanup)
+### 6.3 全模式大一統端點標記與智慧點擊分流 (Universal Terminal Indicators &amp; Smart Action Dispatch)
+
+本設計將「端點識別」與「點擊行為分流」提升為貫穿所有檢視模式（Explorer、Navigate、Columns、Context 等）的核心大一統互動架構，不再受限於純資料夾檢視：
+
+- **通用端點定義（Universal Terminal Node）**：
+  - 判定公式：$\text{端點 (Terminal)} = (\text{深度已達當前限制上限}) \lor (\text{在當前檢視過濾下無任何可展示子項目})$。
+  - **標準總管模式（`contentMode: "all"`）**：內部有子目錄或檔案時為非端點（▶ 箭頭）；**完全空的資料夾（0 檔案 0 目錄）** 則判定為端點（▫ 小方塊）。
+  - **受限深度模式（`depthMode: "one-level"` / `"two-level"`）**：處於最深可見層級的資料夾一律判定為端點（▫ 小方塊）。
+  - **純目錄導覽模式（`contentMode: "folders"`）**：內部無子目錄者（即使有檔案）一律判定為端點（▫ 小方塊）。
+- **視覺工藝與標記（Visual Indicator）**：
+  - 非端點節點：維持原生展開箭頭（`lucide-chevron-right`，展開時向下旋轉）。
+  - 端點節點：自動掛載 `.is-terminal-folder`，將箭頭隱藏並渲染細緻圓角方塊（`5x5px`, `var(--text-faint)`），懸停時柔和微幅放大至 `1.15x` 並切換為 `var(--text-muted)`。
+- **智慧點擊行為分流（Smart Action Dispatch Matrix）**：
+  - **獨立面板 / 無連動子面板（Standalone Mode）**：
+    - **非端點資料夾**：點擊名稱 ➔ **就地展開／收合（Toggle Expand/Collapse）**，完美保留經典樹狀瀏覽直覺。
+    - **端點資料夾**：點擊名稱 ➔ **就地下鑽（In-place Drill-down Re-scoping）**，直接以該資料夾為臨時 root 展開專注檢視，路徑列左側切換為返回按鈕（`lucide-arrow-left`）。解決傳統檔案樹點擊空目錄時「展開一塊空白」的挫折感。
+  - **雙面板接龍模式（Cascade Mode，有跟隨子面板）**：
+    - **普通點擊**：優先下傳路徑驅動子面板顯示內容 (`manager.propagateFrom`)。
+    - **長按（Long Press 450ms）**：在父面板本體執行就地下鑽。
+  - **精準分工與逃生通道（Predictable Control）**：
+    - **點擊最左側圖示（▶ / ▫）**：一律嘗試原生樹狀開合，不下鑽亦不驅動子面板，提供明確掌控權。
+    - **點擊名稱文字／整列**：執行上述智慧分流。
+- **Folder Notes 防護與修飾鍵協同**：
+  - 在接龍連動、端點下鑽或純目錄導覽時，自動阻斷第三方 Folder Notes 外掛彈出分頁；按住 `Mod` 鍵（`Ctrl` / `Cmd`）點擊時放行，兼顧純粹導航與進階檔案開啟。
+
+### 6.4 設定生命週期管理與孤兒資料清理 (Settings Lifecycle &amp; Orphan Cleanup)
 - **即時 Vault 事件聯動**：
   - `vault.on("rename")`：當資料夾更名或搬移時，自動遷移 5 個個別資料夾字典（`folderIcons`, `folderViewModes`, `folderDepthModes`, `folderContentModes`, `folderSortOrders`）中的路徑 key（含其子路徑），並同步更新目前已開啟之 Folder Space 面板路徑。
   - `vault.on("delete")`：當資料夾被刪除時，自動刪除 5 個字典中該路徑及其子路徑之所有設定 key。
@@ -181,15 +199,16 @@ stateDiagram-v2
 ## 8. 驗收標準與品質門禁 (Quality Gates &amp; Verification)
 
 1. **自動化測試覆蓋**：
-  - 包含 `tests/presets.test.ts`、`tests/settings.test.ts`、`tests/tree-navigation.test.ts`、`tests/panel-binding.test.ts` 等 87 項單元測試，達成 100% 通過。
+  - 包含 `tests/presets.test.ts`、`tests/settings.test.ts`、`tests/tree-navigation.test.ts`、`tests/panel-binding.test.ts` 等 88 項單元測試，達成 100% 通過。
 2. **語法與專案健全度**：
   - `npm run check:project` 通過（含 shared engine 與 ObsidianWindowSpaces byte-identical 驗證）。
   - `npm run lint` 達成 0 Error, 0 Warning。
   - `npm run build` 與 `npm run test:build` 通過，產物已部署至測試庫並驗證雜湊一致。
 3. **CDP 實機驗證（Live Obsidian Runtime）**：
-  - 驗證 Setting Tab 的 Presets Reference Table 樣式與設定選項。
+  - 驗證 Setting Tab 的 Presets Reference Table 樣式與 4 大高內聚設定群組。
   - 驗證 Toolbar 最左側下拉選單「開啟 Folder Spaces 設定」能正常喚起外掛設定頁。
   - 驗證鍵盤方向鍵上下移動焦點時，子面板順暢即時跟隨。
+  - 驗證端點資料夾小方塊標記與點擊智慧分流（非端點開合、端點下鑽）。
   - 驗證下鑽狀態下返回按鈕替換、hover 指標切換、逐層返回與父面板切換時的自動重置。
   - 驗證資料夾更名與刪除時設定自動同步遷移與修剪，設定頁開啟時自動掃除孤兒設定。
 
