@@ -19,7 +19,9 @@ test("i18n language resolution falls back correctly and distinguishes zh-TW / zh
   assert.equal(t("actionOpenSettings", "en"), "Open Folder Spaces settings");
   assert.equal(t("actionOpenSettings", "zh-TW"), "開啟 Folder Spaces 設定");
   assert.equal(t("actionOpenSettings", "zh-CN"), "打开 Folder Spaces 设置");
-  assert.equal(t("settingsDisableFolderNotesInFolderOnlyName", "zh-TW"), "在純資料夾檢視中停用資料夾筆記");
+  assert.equal(t("actionOpenFolderNote", "en"), "Open folder note");
+  assert.equal(t("actionOpenFolderNote", "zh-TW"), "開啟資料夾筆記");
+  assert.equal(t("actionOpenFolderNote", "zh-CN"), "打开文件夹笔记");
   assert.equal(t("settingsCascadeSection", "en"), "Cascade & linking");
   assert.equal(t("settingsCascadeSection", "zh-TW"), "雙面板接龍與連動");
   assert.equal(t("settingsCascadeSection", "zh-CN"), "双面板接龙与连动");

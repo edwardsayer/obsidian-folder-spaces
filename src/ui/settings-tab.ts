@@ -8,7 +8,12 @@ import {
   resolveOpenLocation,
   pruneOrphanFolderSettings
 } from "../settings.js";
-import { FOLDER_SPACE_PRESETS, resolvePresetId, type FolderSpacePresetId } from "../presets.js";
+import {
+  FOLDER_SPACE_PRESETS,
+  CASCADE_PARENT_PRESETS,
+  resolvePresetId,
+  type FolderSpacePresetId
+} from "../presets.js";
 
 /**
  * Obsidian `SettingGroup` 的型別宣告（Obsidian 1.12.7+ 新增，
@@ -186,18 +191,22 @@ export class FolderSpacesSettingTab extends PluginSettingTab {
       name: string,
       desc: string,
       value: FolderSpacePresetId,
-      apply: (id: FolderSpacePresetId) => void
+      apply: (id: FolderSpacePresetId) => void,
+      allowedPresetIds?: readonly FolderSpacePresetId[]
     ): void => {
       this.createSettingIn(container, (s) => {
         s.setName(name)
           .setDesc(desc)
           .addDropdown((dropdown) => {
-            for (const preset of FOLDER_SPACE_PRESETS) {
+            const presets = allowedPresetIds
+              ? FOLDER_SPACE_PRESETS.filter((p) => allowedPresetIds.includes(p.id))
+              : FOLDER_SPACE_PRESETS;
+            for (const preset of presets) {
               dropdown.addOption(preset.id, presetLabel(preset.id));
             }
             dropdown
               .setValue(value)
-              .onChange(async (next) => apply(resolvePresetId(next, "explorer")));
+              .onChange(async (next) => apply(resolvePresetId(next, presets[0]?.id ?? "explorer")));
           });
       });
     };
@@ -212,19 +221,6 @@ export class FolderSpacesSettingTab extends PluginSettingTab {
       }
     );
 
-    this.createSettingIn(presetGroup, (s) => {
-      s.setName(t("settingsDisableFolderNotesInFolderOnlyName"))
-        .setDesc(t("settingsDisableFolderNotesInFolderOnlyDesc"))
-        .addToggle((toggle) => {
-          toggle.setValue(this.plugin.settings.disableFolderNotesInFolderOnlyView).onChange(async (value) => {
-            await this.plugin.updateSettings({
-              ...this.plugin.settings,
-              disableFolderNotesInFolderOnlyView: value
-            });
-          });
-        });
-    });
-
     // ===== 4. 雙面板接龍與連動 =====
     new Setting(containerEl).setName(t("settingsCascadeSection")).setHeading();
     const cascadeGroup = this.createGroup(containerEl) ?? containerEl;
@@ -238,19 +234,6 @@ export class FolderSpacesSettingTab extends PluginSettingTab {
         void this.plugin.updateSettings({ ...this.plugin.settings, defaultChildPreset: id });
       }
     );
-
-    this.createSettingIn(cascadeGroup, (s) => {
-      s.setName(t("settingsAutoApplyChildPresetName"))
-        .setDesc(t("settingsAutoApplyChildPresetDesc"))
-        .addToggle((toggle) => {
-          toggle.setValue(this.plugin.settings.autoApplyChildPreset).onChange(async (value) => {
-            await this.plugin.updateSettings({
-              ...this.plugin.settings,
-              autoApplyChildPreset: value
-            });
-          });
-        });
-    });
 
     this.createSettingIn(cascadeGroup, (s) => {
       s.setName(t("settingsAdaptiveCascadeParentName"))
@@ -272,7 +255,8 @@ export class FolderSpacesSettingTab extends PluginSettingTab {
       this.plugin.settings.cascadeParentPreset,
       (id) => {
         void this.plugin.updateSettings({ ...this.plugin.settings, cascadeParentPreset: id });
-      }
+      },
+      CASCADE_PARENT_PRESETS
     );
 
     this.createSettingIn(cascadeGroup, (s) => {
@@ -318,10 +302,10 @@ export class FolderSpacesSettingTab extends PluginSettingTab {
 
       const thead = table.createEl("thead");
       const headerRow = thead.createEl("tr");
-      headerRow.createEl("th", { text: t("presetSection") });
-      headerRow.createEl("th", { text: `${t("actionTreeView")} / ${t("actionFlatView")}` });
-      headerRow.createEl("th", { text: t("settingsDefaultDepthModeName") });
-      headerRow.createEl("th", { text: t("settingsDefaultContentModeName") });
+      headerRow.createEl("th", { text: t("presetTableHeaderPreset") });
+      headerRow.createEl("th", { text: t("presetTableHeaderViewType") });
+      headerRow.createEl("th", { text: t("presetTableHeaderDepth") });
+      headerRow.createEl("th", { text: t("presetTableHeaderContent") });
 
       const tbody = table.createEl("tbody");
       for (const preset of FOLDER_SPACE_PRESETS) {

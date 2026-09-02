@@ -14,17 +14,24 @@ import type {
  * - context（脈絡）：受限 2 層資料夾樹（tree / 2 levels / folders）——中間 Bridge 面板。
  * - contents（內容）：扁平全覽（flat / all / all）——終端 child 的現有 flat 群組式總覽。
  * - files（檔案）：遞迴全部檔案清單（flat / all / files）——終端 child，自動 flat。
+ * - list（清單）：單層直屬檔案清單（flat / 1 level / files）——終端 child，單層純檔案。
  *
  * DepthMode 在 Tree 與 Flat 模式下皆完整生效（Flat 模式依 depthLimit 限制遞迴收集群組的深度）。
  */
 
-export type FolderSpacePresetId = "explorer" | "navigate" | "columns" | "context" | "contents" | "files";
+export type FolderSpacePresetId = "explorer" | "navigate" | "columns" | "context" | "contents" | "files" | "list";
 
 export interface FolderSpacePreset {
   id: FolderSpacePresetId;
   viewMode: FolderSpaceViewMode;
   depthMode: FolderSpaceDepthMode;
   contentMode: FolderSpaceContentMode;
+}
+
+export interface FolderSpacePresetModeSetters {
+  setViewMode(mode: FolderSpaceViewMode): void;
+  setDepthMode(mode: FolderSpaceDepthMode): void;
+  setContentMode(mode: FolderSpaceContentMode): void;
 }
 
 /** UI 顯示順序。 */
@@ -34,8 +41,11 @@ export const FOLDER_SPACE_PRESETS: readonly FolderSpacePreset[] = [
   { id: "columns", viewMode: "tree", depthMode: "one-level", contentMode: "folders" },
   { id: "context", viewMode: "tree", depthMode: "two-level", contentMode: "folders" },
   { id: "contents", viewMode: "flat", depthMode: "all-level", contentMode: "all" },
-  { id: "files", viewMode: "flat", depthMode: "all-level", contentMode: "files" }
+  { id: "files", viewMode: "flat", depthMode: "all-level", contentMode: "files" },
+  { id: "list", viewMode: "flat", depthMode: "one-level", contentMode: "files" }
 ];
+
+export const CASCADE_PARENT_PRESETS: readonly FolderSpacePresetId[] = ["navigate", "columns", "context"];
 
 export function getPreset(id: unknown): FolderSpacePreset | null {
   return FOLDER_SPACE_PRESETS.find((p) => p.id === id) ?? null;
@@ -44,6 +54,14 @@ export function getPreset(id: unknown): FolderSpacePreset | null {
 /** 回傳合法 preset id，否則 fallback（用於設定正規化）。 */
 export function resolvePresetId(id: unknown, fallback: FolderSpacePresetId): FolderSpacePresetId {
   return getPreset(id)?.id ?? fallback;
+}
+
+/** 回傳合法父面板導覽 preset id（限制為純目錄預設集），否則 fallback。 */
+export function resolveCascadeParentPresetId(
+  id: unknown,
+  fallback: FolderSpacePresetId = "navigate"
+): FolderSpacePresetId {
+  return CASCADE_PARENT_PRESETS.includes(id as FolderSpacePresetId) ? (id as FolderSpacePresetId) : fallback;
 }
 
 /** 由目前三個維度比對出對應 preset；無匹配（自訂組合）回傳 null。 */
@@ -70,4 +88,15 @@ export function presetToState(
 ): { viewMode: FolderSpaceViewMode; depthMode: FolderSpaceDepthMode; contentMode: FolderSpaceContentMode } {
   const viewMode = preset.contentMode === "files" ? "flat" : preset.viewMode;
   return { viewMode, depthMode: preset.depthMode, contentMode: preset.contentMode };
+}
+
+/**
+ * 套用 preset 的固定順序：先更新 content，再更新 depth，最後更新 view。
+ * Files content 會強制 Flat；先切離 files 才能讓 Tree preset 正確生效。
+ */
+export function applyPresetModes(preset: FolderSpacePreset, setters: FolderSpacePresetModeSetters): void {
+  const state = presetToState(preset);
+  setters.setContentMode(state.contentMode);
+  setters.setDepthMode(state.depthMode);
+  setters.setViewMode(state.viewMode);
 }

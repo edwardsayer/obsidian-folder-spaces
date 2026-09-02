@@ -114,6 +114,7 @@ export interface CandidateLeafDescriptor<Panel = unknown> {
   pinned: boolean;
   viewType: string;
   isSideColumn?: boolean;
+  window?: unknown;
 }
 
 export const KNOWN_TOOL_VIEW_TYPES: ReadonlySet<string> = new Set([
@@ -153,9 +154,11 @@ export function resolveContentAreaRouting<Leaf extends CandidateLeafDescriptor<P
   }
 
   const currentTabGroup = currentLeaf.parent;
+  const currentWin = currentLeaf.window;
   const candidateLeaves = allLeaves.filter(
     (leaf) =>
       leaf !== currentLeaf &&
+      (currentWin === undefined || leaf.window === undefined || leaf.window === currentWin) &&
       leaf.root === root &&
       leaf.parent !== currentTabGroup &&
       !leaf.isSideColumn &&

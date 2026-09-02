@@ -1,6 +1,6 @@
 import type { FolderSpaceViewMode, FolderSpaceDepthMode, FolderSpaceContentMode } from "./compatibility-helpers.js";
 import type { FolderSpacePresetId } from "./presets.js";
-import { resolvePresetId } from "./presets.js";
+import { resolvePresetId, resolveCascadeParentPresetId } from "./presets.js";
 import type { FolderSpaceSortOrder } from "./folder-space-sort-filter.js";
 import { normalizeSortOrder } from "./folder-space-sort-filter.js";
 export type { FolderSpaceViewMode, FolderSpaceDepthMode, FolderSpaceContentMode };
@@ -21,20 +21,15 @@ export interface FolderSpacesSettings {
   defaultOpenLocationMain: FolderSpaceLocation;
   defaultOpenLocationPopout: FolderSpaceLocation;
   defaultViewMode: FolderSpaceViewMode;
-  folderViewModes: Record<string, FolderSpaceViewMode>;
   defaultDepthMode: FolderSpaceDepthMode;
-  folderDepthModes: Record<string, FolderSpaceDepthMode>;
   defaultContentMode: FolderSpaceContentMode;
-  folderContentModes: Record<string, FolderSpaceContentMode>;
   showRibbonIcon: boolean;
   defaultFollowParentSameWindow: boolean;
   defaultFollowParentNewWindow: boolean;
   defaultPreset: FolderSpacePresetId;
   defaultChildPreset: FolderSpacePresetId;
-  autoApplyChildPreset: boolean;
   adaptiveCascadeParent: boolean;
   cascadeParentPreset: FolderSpacePresetId;
-  disableFolderNotesInFolderOnlyView: boolean;
   folderSortOrders: Record<string, FolderSpaceSortOrder>;
   alwaysOpenInOtherPanel: boolean;
 }
@@ -44,20 +39,15 @@ export const DEFAULT_SETTINGS: FolderSpacesSettings = {
   defaultOpenLocationMain: "right-sidebar",
   defaultOpenLocationPopout: "left-sidebar",
   defaultViewMode: "tree",
-  folderViewModes: {},
   defaultDepthMode: "all-level",
-  folderDepthModes: {},
   defaultContentMode: "all",
-  folderContentModes: {},
   showRibbonIcon: true,
   defaultFollowParentSameWindow: true,
   defaultFollowParentNewWindow: false,
   defaultPreset: "explorer",
   defaultChildPreset: "contents",
-  autoApplyChildPreset: true,
   adaptiveCascadeParent: true,
   cascadeParentPreset: "navigate",
-  disableFolderNotesInFolderOnlyView: true,
   folderSortOrders: {},
   alwaysOpenInOtherPanel: true
 };
@@ -69,11 +59,8 @@ export function normalizeSettings(data: unknown): FolderSpacesSettings {
     folderIcons: normalizeFolderIcons(settings.folderIcons),
     ...resolveOpenLocations(settings),
     defaultViewMode: resolveViewMode(settings.defaultViewMode),
-    folderViewModes: normalizeFolderViewModes(settings.folderViewModes),
     defaultDepthMode: resolveDepthMode(settings.defaultDepthMode),
-    folderDepthModes: normalizeFolderDepthModes(settings.folderDepthModes),
     defaultContentMode: resolveContentMode(settings.defaultContentMode),
-    folderContentModes: normalizeFolderContentModes(settings.folderContentModes),
     showRibbonIcon: normalizeBoolean(settings.showRibbonIcon, DEFAULT_SETTINGS.showRibbonIcon),
     defaultFollowParentSameWindow: normalizeBoolean(
       settings.defaultFollowParentSameWindow,
@@ -85,12 +72,10 @@ export function normalizeSettings(data: unknown): FolderSpacesSettings {
     ),
     defaultPreset: resolvePresetId(settings.defaultPreset, DEFAULT_SETTINGS.defaultPreset),
     defaultChildPreset: resolvePresetId(settings.defaultChildPreset, DEFAULT_SETTINGS.defaultChildPreset),
-    autoApplyChildPreset: normalizeBoolean(settings.autoApplyChildPreset, DEFAULT_SETTINGS.autoApplyChildPreset),
     adaptiveCascadeParent: normalizeBoolean(settings.adaptiveCascadeParent, DEFAULT_SETTINGS.adaptiveCascadeParent),
-    cascadeParentPreset: resolvePresetId(settings.cascadeParentPreset, DEFAULT_SETTINGS.cascadeParentPreset),
-    disableFolderNotesInFolderOnlyView: normalizeBoolean(
-      settings.disableFolderNotesInFolderOnlyView,
-      DEFAULT_SETTINGS.disableFolderNotesInFolderOnlyView
+    cascadeParentPreset: resolveCascadeParentPresetId(
+      settings.cascadeParentPreset,
+      DEFAULT_SETTINGS.cascadeParentPreset
     ),
     folderSortOrders: normalizeFolderSortOrders(settings.folderSortOrders),
     alwaysOpenInOtherPanel: normalizeBoolean(
@@ -209,22 +194,6 @@ function getObsidianIconIds(): string[] {
   }
 }
 
-function normalizeFolderViewModes(data: unknown): Record<string, FolderSpaceViewMode> {
-  if (!data || typeof data !== "object") {
-    return {};
-  }
-
-  const normalized: Record<string, FolderSpaceViewMode> = {};
-  for (const [path, mode] of Object.entries(data as Record<string, unknown>)) {
-    const trimmedPath = path.trim();
-    if (!trimmedPath || (mode !== "tree" && mode !== "flat")) {
-      continue;
-    }
-    normalized[trimmedPath] = mode;
-  }
-  return normalized;
-}
-
 function normalizeFolderIcons(data: unknown): Record<string, string> {
   if (!data || typeof data !== "object") {
     return {};
@@ -254,38 +223,6 @@ export function resolveContentMode(mode: unknown): FolderSpaceContentMode {
     return mode;
   }
   return "all";
-}
-
-function normalizeFolderDepthModes(data: unknown): Record<string, FolderSpaceDepthMode> {
-  if (!data || typeof data !== "object") {
-    return {};
-  }
-
-  const normalized: Record<string, FolderSpaceDepthMode> = {};
-  for (const [path, mode] of Object.entries(data as Record<string, unknown>)) {
-    const trimmedPath = path.trim();
-    if (!trimmedPath || (mode !== "one-level" && mode !== "two-level" && mode !== "all-level")) {
-      continue;
-    }
-    normalized[trimmedPath] = mode;
-  }
-  return normalized;
-}
-
-function normalizeFolderContentModes(data: unknown): Record<string, FolderSpaceContentMode> {
-  if (!data || typeof data !== "object") {
-    return {};
-  }
-
-  const normalized: Record<string, FolderSpaceContentMode> = {};
-  for (const [path, mode] of Object.entries(data as Record<string, unknown>)) {
-    const trimmedPath = path.trim();
-    if (!trimmedPath || (mode !== "folders" && mode !== "files" && mode !== "all")) {
-      continue;
-    }
-    normalized[trimmedPath] = mode;
-  }
-  return normalized;
 }
 
 /**
@@ -320,9 +257,6 @@ export function migrateFolderPathInSettings(
   };
 
   migrateMap(settings.folderIcons);
-  migrateMap(settings.folderViewModes);
-  migrateMap(settings.folderDepthModes);
-  migrateMap(settings.folderContentModes);
   migrateMap(settings.folderSortOrders);
 
   return changed;
@@ -351,9 +285,6 @@ export function pruneFolderPathFromSettings(
   };
 
   pruneMap(settings.folderIcons);
-  pruneMap(settings.folderViewModes);
-  pruneMap(settings.folderDepthModes);
-  pruneMap(settings.folderContentModes);
   pruneMap(settings.folderSortOrders);
 
   return changed;
@@ -378,9 +309,6 @@ export function pruneOrphanFolderSettings(
   };
 
   pruneMap(settings.folderIcons);
-  pruneMap(settings.folderViewModes);
-  pruneMap(settings.folderDepthModes);
-  pruneMap(settings.folderContentModes);
   pruneMap(settings.folderSortOrders);
 
   return changed;

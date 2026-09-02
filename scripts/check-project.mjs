@@ -58,6 +58,7 @@ const requiredPaths = [
   "src/shared/sharedVersion.ts",
   "src/shared/popoutLayoutRegistry.ts",
   "src/shared/workspaceInterceptor.ts",
+  "src/shared/windowActiveFileTracker.ts",
   "src/ui/settings-tab.ts",
   "src/ui/icon-picker-modal.ts",
   "scripts/run-tests.mjs",

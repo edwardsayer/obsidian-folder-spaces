@@ -298,13 +298,13 @@ test("folder path bar stays non-shrinking and ellipsizes its text child", () => 
   );
   assert.match(styles, /\.folder-spaces-sync-source-icon\s*\{[\s\S]*flex:\s*0 0 var\(--icon-xs\)/);
   assert.match(styles, /\.folder-spaces-sync-source-icon\s*\{[\s\S]*color:\s*var\(--text-accent\)/);
-  assert.match(styles, /\.folder-spaces-sync-source-icon\s*\{[\s\S]*height:\s*0/);
+  assert.match(styles, /\.folder-spaces-sync-source-icon\s*\{[\s\S]*height:\s*var\(--icon-xs\)/);
   assert.match(styles, /\.folder-spaces-sync-source-icon\s*\{[\s\S]*margin-inline:\s*0/);
   assert.match(
     styles,
     /\.tree-item-self\.folder-spaces-sync-has-tail \.folder-spaces-sync-source-icon\s*\{[\s\S]*margin-inline-end:\s*var\(--size-2-1\)/
   );
-  assert.match(styles, /\.folder-spaces-sync-source-icon svg\s*\{[\s\S]*position:\s*absolute/);
+  assert.match(styles, /\.folder-spaces-sync-source-icon svg\s*\{[\s\S]*display:\s*block/);
   assert.match(
     styles,
     /\.folder-spaces-folder-path > \.folder-spaces-status-icon\.is-active\s*\{[\s\S]*color:\s*var\(--text-accent\)/
@@ -312,6 +312,10 @@ test("folder path bar stays non-shrinking and ellipsizes its text child", () => 
   assert.match(
     styles,
     /\.folder-spaces-folder-path > \.folder-spaces-status-icon\.is-active\s*\{[\s\S]*background-color:\s*transparent/
+  );
+  assert.match(
+    styles,
+    /\.workspace-leaf\.is-highlighted:before\s*\{[\s\S]*background-color:\s*color-mix\(in oklch,\s*var\(--interactive-accent\)\s*25%,\s*transparent\)/
   );
 });
 
@@ -454,6 +458,38 @@ test("resolveContentAreaRouting routes to other tab groups in content area", () 
   );
   // Both file-explorer and sideColumnNoteLeaf are excluded -> falls through to split
   assert.deepEqual(toolExcludedDecision, { kind: "split" });
+
+  // 8. Content Area excludes leaves in other windows
+  const win1 = { id: "popout-win-1" };
+  const win2 = { id: "popout-win-2" };
+
+  const fsInWin1 = {
+    id: "fs-win-1",
+    parent: { id: "win1-group1" },
+    root: rootSplit,
+    pinned: false,
+    viewType: "folder-spaces-explorer",
+    window: win1
+  };
+
+  const noteInWin2 = {
+    id: "note-win-2",
+    parent: { id: "win2-group1" },
+    root: rootSplit,
+    pinned: false,
+    viewType: "markdown",
+    window: win2
+  };
+
+  const crossWinDecision = resolveContentAreaRouting(
+    fsInWin1,
+    [fsInWin1, noteInWin2],
+    () => 100,
+    sidebarRoots,
+    true
+  );
+  // noteInWin2 is in win2, fsInWin1 is in win1 -> noteInWin2 excluded, decision splits in win1
+  assert.deepEqual(crossWinDecision, { kind: "split" });
 });
 
 test("createTabInLastSplit finds last leaf and appends tab or falls back to first leaf creator", () => {

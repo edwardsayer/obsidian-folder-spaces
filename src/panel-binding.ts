@@ -21,6 +21,8 @@ export interface PanelBindingView {
   getFolderPath(): string | null;
   setFolderPath(path: string | null, options?: FolderPathChangeOptions): void;
   onBindingChanged?(): void;
+  containerEl?: HTMLElement;
+  leaf?: unknown;
 }
 
 export interface FolderPathChangeOptions {
@@ -273,5 +275,60 @@ export class PanelBindingManager {
 
     this.parentOf.set(childId, parentId);
     this.childOf.set(parentId, childId);
+  }
+}
+
+function applyHighlight(target: unknown, highlight: boolean): void {
+  if (!target || typeof target !== "object") return;
+  const candidate = target as {
+    highlight?(): void;
+    unhighlight?(): void;
+    containerEl?: HTMLElement;
+    addClass?(cls: string): void;
+    removeClass?(cls: string): void;
+  };
+  if (highlight) {
+    if (typeof candidate.highlight === "function") {
+      candidate.highlight();
+    } else if (candidate.containerEl && typeof candidate.containerEl.addClass === "function") {
+      candidate.containerEl.addClass("is-highlighted");
+    } else if (typeof candidate.addClass === "function") {
+      candidate.addClass("is-highlighted");
+    }
+  } else {
+    if (typeof candidate.unhighlight === "function") {
+      candidate.unhighlight();
+    } else if (candidate.containerEl && typeof candidate.containerEl.removeClass === "function") {
+      candidate.containerEl.removeClass("is-highlighted");
+    } else if (typeof candidate.removeClass === "function") {
+      candidate.removeClass("is-highlighted");
+    }
+  }
+}
+
+/**
+ * Toggles the linked view highlight on both sides of a parent-child binding.
+ * Uses Obsidian's native `leaf.highlight()` / `leaf.unhighlight()` (which applies
+ * `is-highlighted` with native 25% accent color overlay).
+ */
+export function toggleLinkedViewsHighlight(
+  manager: PanelBindingManager | undefined | null,
+  sourcePanelId: string,
+  sourceTarget: unknown,
+  targetType: "parent" | "child",
+  highlight: boolean
+): void {
+  applyHighlight(sourceTarget, highlight);
+
+  if (!manager) {
+    return;
+  }
+
+  const other = targetType === "parent"
+    ? manager.getParentOf(sourcePanelId)
+    : manager.getChildOf(sourcePanelId);
+
+  if (other) {
+    applyHighlight(other.leaf ?? other.containerEl ?? other, highlight);
   }
 }

@@ -42,8 +42,26 @@ export function pathContainsQuery(query: string, path: string): boolean {
 /** 樹狀項目的最小介面（只取排序/過濾需要的欄位）。 */
 export interface SortableFileLike {
   name: string;
+  path?: string;
   stat?: { mtime?: number; ctime?: number };
   children?: unknown[] | null;
+}
+
+export interface CompareSortableOptions {
+  basePath?: string | null;
+  useRelativePath?: boolean;
+}
+
+/** 取得檔案/資料夾路徑相對於 basePath 的相對路徑。 */
+export function getRelativePath(path: string | undefined, basePath?: string | null): string {
+  if (!path) {
+    return "";
+  }
+  if (!basePath) {
+    return path;
+  }
+  const prefix = `${basePath}/`;
+  return path.startsWith(prefix) ? path.slice(prefix.length) : path;
 }
 
 export function isFolderLike(file: SortableFileLike): boolean {
@@ -82,12 +100,14 @@ export function hasMatchingPathDescendant(
 
 /**
  * 比較兩個顯示項目：資料夾恆優先（同原生 explorer），其次依 key 與方向。
+ * 若指定 useRelativePath（例如 Flat view 下），以相對路徑為基礎進行比較。
  * 回傳負/零/正，供 Array.sort 使用。
  */
 export function compareSortableItems(
   left: SortableFileLike,
   right: SortableFileLike,
-  order: FolderSpaceSortOrder
+  order: FolderSpaceSortOrder,
+  options?: CompareSortableOptions
 ): number {
   const leftIsFolder = isFolderLike(left);
   const rightIsFolder = isFolderLike(right);
@@ -96,21 +116,33 @@ export function compareSortableItems(
   }
 
   let result = 0;
+  const leftName =
+    options?.useRelativePath && typeof left.path === "string"
+      ? getRelativePath(left.path, options.basePath)
+      : left.name;
+  const rightName =
+    options?.useRelativePath && typeof right.path === "string"
+      ? getRelativePath(right.path, options.basePath)
+      : right.name;
+
   if (order.key === "name") {
-    result = left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" });
+    result = leftName.localeCompare(rightName, undefined, { numeric: true, sensitivity: "base" });
   } else if (order.key === "mtime") {
     result = (left.stat?.mtime ?? 0) - (right.stat?.mtime ?? 0);
   } else {
     result = (left.stat?.ctime ?? 0) - (right.stat?.ctime ?? 0);
   }
   if (result === 0) {
-    // 穩定 tie-break：同名時依路徑（name 已含路徑時）或直接回 0
     return 0;
   }
   return order.dir === "desc" ? -result : result;
 }
 
 /** 依 order 排序（in-place，回傳同一陣列）。 */
-export function sortByOrder<T extends SortableFileLike>(items: T[], order: FolderSpaceSortOrder): T[] {
-  return items.sort((a, b) => compareSortableItems(a, b, order));
+export function sortByOrder<T extends SortableFileLike>(
+  items: T[],
+  order: FolderSpaceSortOrder,
+  options?: CompareSortableOptions
+): T[] {
+  return items.sort((a, b) => compareSortableItems(a, b, order, options));
 }

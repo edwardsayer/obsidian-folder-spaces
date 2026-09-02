@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { PanelBindingManager, generatePanelId, type PanelBindingView } from "../src/panel-binding.js";
+import {
+  PanelBindingManager,
+  generatePanelId,
+  toggleLinkedViewsHighlight,
+  type PanelBindingView
+} from "../src/panel-binding.js";
 
 interface FakePanel extends PanelBindingView {
   folderPath: string | null;
@@ -356,4 +361,57 @@ test("hasChild correctly reports whether a panel parents any active child", () =
 
   manager.unbind("child");
   assert.equal(manager.hasChild("parent"), false);
+});
+
+test("toggleLinkedViewsHighlight toggles highlight class on both bound views", () => {
+  const manager = new PanelBindingManager();
+
+  const createMockLeaf = () => {
+    const classes = new Set<string>();
+    const containerEl = {
+      addClass: (cls: string) => classes.add(cls),
+      removeClass: (cls: string) => classes.delete(cls),
+      hasClass: (cls: string) => classes.has(cls)
+    } as unknown as HTMLElement;
+    return {
+      containerEl,
+      highlight: () => (containerEl as any).addClass("is-highlighted"),
+      unhighlight: () => (containerEl as any).removeClass("is-highlighted")
+    };
+  };
+
+  const parentLeaf = createMockLeaf();
+  const childLeaf = createMockLeaf();
+
+  const parentPanel = createPanel("parent");
+  parentPanel.leaf = parentLeaf;
+  parentPanel.containerEl = parentLeaf.containerEl;
+
+  const childPanel = createPanel("child");
+  childPanel.leaf = childLeaf;
+  childPanel.containerEl = childLeaf.containerEl;
+
+  manager.register(parentPanel);
+  manager.register(childPanel);
+  manager.bind("parent", "child");
+
+  // Child hovers its status icon
+  toggleLinkedViewsHighlight(manager, "child", childLeaf, "parent", true);
+  assert.equal((childLeaf.containerEl as any).hasClass("is-highlighted"), true);
+  assert.equal((parentLeaf.containerEl as any).hasClass("is-highlighted"), true);
+
+  // Child unhovers
+  toggleLinkedViewsHighlight(manager, "child", childLeaf, "parent", false);
+  assert.equal((childLeaf.containerEl as any).hasClass("is-highlighted"), false);
+  assert.equal((parentLeaf.containerEl as any).hasClass("is-highlighted"), false);
+
+  // Parent hovers its sync focus icon
+  toggleLinkedViewsHighlight(manager, "parent", parentLeaf, "child", true);
+  assert.equal((childLeaf.containerEl as any).hasClass("is-highlighted"), true);
+  assert.equal((parentLeaf.containerEl as any).hasClass("is-highlighted"), true);
+
+  // Parent unhovers
+  toggleLinkedViewsHighlight(manager, "parent", parentLeaf, "child", false);
+  assert.equal((childLeaf.containerEl as any).hasClass("is-highlighted"), false);
+  assert.equal((parentLeaf.containerEl as any).hasClass("is-highlighted"), false);
 });

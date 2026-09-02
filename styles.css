@@ -27,6 +27,13 @@
   background-color: transparent;
 }
 
+/* Folder Space 樹中的資料夾名稱佔滿整行：讓尾端的 folder note / sync 圖示
+   固定在行尾（而非緊貼名稱），維持原生 explorer 的視覺一致性。 */
+.tree-item-self.nav-folder-title .nav-folder-title-content {
+  flex-grow: 1;
+  min-width: 0;
+}
+
 /* 父子連動目標項目：字體不加 Accent 顏色，背景不特別 highlight，由右側連結符號加 Accent 標示 */
 .tree-item-self.folder-spaces-sync-focus .nav-folder-title-content {
   flex-grow: 1;
@@ -35,28 +42,80 @@
 
 .folder-spaces-sync-source-icon {
   position: relative;
-  display: block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: 0 0 var(--icon-xs);
   width: var(--icon-xs);
-  height: 0;
+  height: var(--icon-xs);
   margin-inline: 0;
   color: var(--text-accent);
   align-self: center;
-  pointer-events: none;
+  pointer-events: auto;
+  cursor: pointer;
+  border-radius: var(--radius-s);
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.folder-spaces-sync-source-icon:hover {
+  color: var(--text-accent-hover, var(--text-accent));
+  background-color: var(--background-modifier-hover);
 }
 
 .folder-spaces-sync-source-icon svg {
-  position: absolute;
-  inset-block-start: 50%;
-  inset-inline-start: 0;
+  display: block;
   width: var(--icon-xs);
   height: var(--icon-xs);
-  transform: translateY(-50%);
 }
 
 /* 只有 icon 後方確實有第三方尾端 decoration 時才保留間隔。 */
 .tree-item-self.folder-spaces-sync-has-tail .folder-spaces-sync-source-icon {
   margin-inline-end: var(--size-2-1);
+}
+
+/* 資料夾筆記開啟圖示：名稱後方、chevron 之外；點擊開啟該資料夾的 folder note。
+   與 sync-source-icon 區分：預設為 muted 色，hover 時轉 accent。
+   熱區 20px、svg 16px，確保容易辨識與點擊。 */
+.tree-item-self .folder-spaces-note-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 20px;
+  width: 20px;
+  height: 20px;
+  margin-inline: var(--size-2-2) 0;
+  color: var(--text-muted);
+  align-self: center;
+  pointer-events: auto;
+  cursor: pointer;
+  border-radius: var(--radius-s);
+  transition: color 0.15s ease, background-color 0.15s ease, transform 0.15s ease;
+}
+
+.tree-item-self .folder-spaces-note-icon:hover {
+  color: var(--text-accent-hover, var(--text-accent));
+  background-color: var(--background-modifier-hover);
+  transform: scale(1.15);
+}
+
+.tree-item-self .folder-spaces-note-icon:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: -1px;
+}
+
+.tree-item-self .folder-spaces-note-icon svg {
+  display: block;
+  flex: 0 0 auto;
+  width: 16px !important;
+  height: 16px !important;
+  max-width: none;
+  max-height: none;
+}
+
+.tree-item-self.folder-spaces-sync-focus .folder-spaces-note-icon,
+.tree-item-self.is-terminal-folder .folder-spaces-note-icon {
+  margin-inline-start: var(--size-2-2);
 }
 
 .folder-spaces-folder-path-text {
@@ -324,6 +383,54 @@
   transform: scale(1.15);
 }
 
+/* Folder Spaces: 資料夾名稱文字自適應寬度，留出右側整列空白區作為 row background 點擊目標 */
+.is-folder-space .tree-item-inner.nav-folder-title-content,
+.folder-spaces-compact-header .tree-item-inner.nav-folder-title-content {
+  flex: 0 1 auto;
+  width: max-content;
+  max-width: 100%;
+}
+
+/* 父子連動在父資料夾結尾端的連結標示 icon，靠右對齊邊框處 */
+.folder-spaces-sync-source-icon {
+  margin-inline-start: auto;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-accent);
+  opacity: 0.8;
+  flex-shrink: 0;
+}
+
+.folder-spaces-sync-source-icon:hover {
+  opacity: 1;
+}
+
+/* Folder Note 名稱文字底線指示 (Follow 社群原生慣例：常態顯示細底線，Hover 加強) */
+.is-folder-space .nav-folder-title-content.has-folder-note,
+.is-folder-space .nav-folder-title[data-has-folder-note="true"] .nav-folder-title-content,
+.folder-spaces-compact-header .nav-folder-title-content.has-folder-note,
+.folder-spaces-compact-header .nav-folder-title[data-has-folder-note="true"] .nav-folder-title-content,
+.nav-folder-title[data-has-folder-note="true"] .nav-folder-title-content,
+.nav-folder-title-content.has-folder-note {
+  text-decoration: underline;
+  text-decoration-color: var(--text-faint);
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.is-folder-space .nav-folder-title-content.has-folder-note:hover,
+.is-folder-space .nav-folder-title[data-has-folder-note="true"] .nav-folder-title-content:hover,
+.folder-spaces-compact-header .nav-folder-title-content.has-folder-note:hover,
+.folder-spaces-compact-header .nav-folder-title[data-has-folder-note="true"] .nav-folder-title-content:hover,
+.nav-folder-title[data-has-folder-note="true"] .nav-folder-title-content:hover,
+.nav-folder-title-content.has-folder-note:hover {
+  text-decoration: underline;
+  text-decoration-color: var(--text-accent);
+  cursor: pointer;
+}
+
 /* 預設集規格對照表 (Presets Reference Table in Settings) */
 .setting-item.folder-spaces-presets-reference-setting {
   display: block;
@@ -382,6 +489,14 @@
   background-color: var(--background-modifier-hover);
 }
 
+/* 檢視預設集 hover cross-highlight：hover preset 項目時，同步 highlight
+   下方 Style / Depth / Show 選單中對應的 view type / depth / content 項目。
+   與原生 hover 底色（.menu-item:hover）疊加，使用 accent 色系區別。 */
+.menu-item.folder-spaces-preset-mode-match {
+  background-color: color-mix(in oklch, var(--interactive-accent) 25%, transparent);
+  color: var(--text-accent);
+}
+
 .folder-spaces-presets-table td {
   color: var(--text-muted);
 }
@@ -393,5 +508,18 @@
 
 .folder-spaces-presets-table tbody tr:last-child td {
   border-bottom: none;
+}
+
+/* 父子面板連動 hover 背景高亮：比照 Obsidian 原生 Open linked view (is-highlighted, 25% accent overlay) */
+.workspace-leaf.is-highlighted:before {
+  content: " ";
+  position: absolute;
+  height: 100%;
+  width: 100%;
+  top: 0;
+  inset-inline-start: 0;
+  background-color: color-mix(in oklch, var(--interactive-accent) 25%, transparent);
+  z-index: var(--layer-popover);
+  pointer-events: none;
 }
 

@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   compareSortableItems,
   DEFAULT_FOLDER_SPACE_SORT_ORDER,
+  getRelativePath,
   hasMatchingPathDescendant,
   normalizeSortOrder,
   pathContainsQuery,
@@ -11,12 +12,14 @@ import {
   type SortableFileLike
 } from "../src/folder-space-sort-filter.js";
 
-const file = (name: string, mtime = 0, ctime = 0): SortableFileLike => ({
+const file = (name: string, mtime = 0, ctime = 0, path?: string): SortableFileLike => ({
   name,
+  path: path ?? name,
   stat: { mtime, ctime }
 });
-const folder = (name: string, children: SortableFileLike[] = []): SortableFileLike => ({
+const folder = (name: string, children: SortableFileLike[] = [], path?: string): SortableFileLike => ({
   name,
+  path: path ?? name,
   children
 });
 
@@ -28,6 +31,17 @@ test("pathContainsQuery is a case-insensitive substring on the path", () => {
   assert.equal(pathContainsQuery("NOTE", "projects/my note.md"), true);
   assert.equal(pathContainsQuery("productivity", "Professional/productivity/123.md"), true);
   assert.equal(pathContainsQuery("xyz", "My Note.md"), false);
+});
+
+test("getRelativePath extracts relative path based on basePath", () => {
+  assert.equal(getRelativePath("Notes/Sub/file.md", "Notes"), "Sub/file.md");
+  assert.equal(getRelativePath("Notes/file.md", "Notes"), "file.md");
+  assert.equal(getRelativePath("Sub/file.md", ""), "Sub/file.md");
+  assert.equal(getRelativePath("file.md", ""), "file.md");
+  assert.equal(getRelativePath("file.md", null), "file.md");
+  assert.equal(getRelativePath("file.md", undefined), "file.md");
+  assert.equal(getRelativePath("", "Notes"), "");
+  assert.equal(getRelativePath(undefined, "Notes"), "");
 });
 
 test("hasMatchingPathDescendant finds path matches at any depth", () => {
@@ -70,6 +84,30 @@ test("compareSortableItems sorts by name asc/desc with natural order", () => {
   assert.ok(compareSortableItems(file("item2.md"), file("item10.md"), { key: "name", dir: "asc" }) < 0);
 });
 
+test("compareSortableItems sorts by relative path when useRelativePath is true", () => {
+  const fileA = file("zeta.md", 0, 0, "Root/alpha/zeta.md");
+  const fileB = file("alpha.md", 0, 0, "Root/beta/alpha.md");
+
+  // Default basename sort: fileB ("alpha.md") < fileA ("zeta.md")
+  assert.ok(compareSortableItems(fileA, fileB, { key: "name", dir: "asc" }) > 0);
+
+  // Relative path sort (Flat view): fileA ("alpha/zeta.md") < fileB ("beta/alpha.md")
+  assert.ok(
+    compareSortableItems(fileA, fileB, { key: "name", dir: "asc" }, {
+      basePath: "Root",
+      useRelativePath: true
+    }) < 0
+  );
+
+  // Relative path desc
+  assert.ok(
+    compareSortableItems(fileA, fileB, { key: "name", dir: "desc" }, {
+      basePath: "Root",
+      useRelativePath: true
+    }) > 0
+  );
+});
+
 test("compareSortableItems sorts by mtime/ctime", () => {
   assert.ok(compareSortableItems(file("a", 100), file("b", 200), { key: "mtime", dir: "asc" }) < 0);
   assert.ok(compareSortableItems(file("a", 100), file("b", 200), { key: "mtime", dir: "desc" }) > 0);
@@ -91,6 +129,32 @@ test("sortByOrder sorts in place, folders first then key", () => {
 
   const byMtime = sortByOrder(items, { key: "mtime", dir: "desc" });
   assert.deepEqual(byMtime.map((i) => i.name), ["A-folder", "B-folder", "b.md", "a.md"]);
+});
+
+test("sortByOrder supports relative path sorting for Flat view", () => {
+  const items = [
+    file("zeta.md", 0, 0, "Vault/alpha/zeta.md"),
+    file("alpha.md", 0, 0, "Vault/beta/alpha.md"),
+    file("main.md", 0, 0, "Vault/main.md"),
+    folder("beta", [], "Vault/beta"),
+    folder("alpha", [], "Vault/alpha")
+  ];
+
+  const sorted = sortByOrder(items, { key: "name", dir: "asc" }, {
+    basePath: "Vault",
+    useRelativePath: true
+  });
+
+  assert.deepEqual(
+    sorted.map((i) => i.path),
+    [
+      "Vault/alpha",
+      "Vault/beta",
+      "Vault/alpha/zeta.md",
+      "Vault/beta/alpha.md",
+      "Vault/main.md"
+    ]
+  );
 });
 
 test("normalizeSortOrder validates key/dir", () => {

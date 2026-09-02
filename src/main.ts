@@ -17,6 +17,7 @@ import {
 } from "./api.js";
 import { FileExplorerCompatibilityBridge } from "./file-explorer-compatibility.js";
 import { t } from "./i18n.js";
+import { readFolderNotesSettings } from "./folder-note-compat.js";
 import {
   FOLDER_SPACES_VIEW_TYPE,
   FolderPickerModal,
@@ -60,9 +61,6 @@ import {
   getDefaultOpenLocation,
   normalizeSettings,
   resolveViewIcon,
-  resolveViewMode,
-  resolveDepthMode,
-  resolveContentMode,
   migrateFolderPathInSettings,
   pruneFolderPathFromSettings,
   type FolderSpaceViewMode,
@@ -73,6 +71,7 @@ import {
 import { getPreset, presetToState } from "./presets.js";
 import { normalizeSortOrder, type FolderSpaceSortOrder } from "./folder-space-sort-filter.js";
 import { FolderSpacesSettingTab } from "./ui/settings-tab.js";
+import { WindowActiveFileTracker } from "./shared/windowActiveFileTracker.js";
 
 type FolderSpaceLocation = "left-sidebar" | "right-sidebar" | "editor" | "window";
 const LEGACY_FLAT_FILE_EXPLORER_VIEW_TYPE = "folder-spaces-flat-explorer";
@@ -94,6 +93,7 @@ export default class FolderSpacesPlugin extends Plugin {
   private ribbonIconEl: HTMLElement | null = null;
   private readonly panelBindingManager = new PanelBindingManager();
   private readonly nativeExplorerBindings = new Map<WorkspaceLeaf, NativeExplorerBinding>();
+  private readonly windowActiveFileTracker = new WindowActiveFileTracker(this.app);
   private activeContextSourceLeaf: WorkspaceLeaf | null = null;
   private popoutLayout!: PopoutLayoutEngineWithWindow;
 
@@ -134,20 +134,9 @@ export default class FolderSpacesPlugin extends Plugin {
           getIcon: () => this.getFolderSpaceIcon(),
           getFolderIcon: (folderPath) => this.getFolderSpaceIcon(folderPath),
           getDefaultViewMode: () => this.settings.defaultViewMode,
-          getFolderViewMode: (folderPath) => this.settings.folderViewModes[folderPath] ?? null,
-          setFolderViewMode: (folderPath, viewMode) => {
-            void this.setFolderViewMode(folderPath, viewMode);
-          },
           getDefaultDepthMode: () => this.settings.defaultDepthMode,
-          getFolderDepthMode: (folderPath) => this.settings.folderDepthModes[folderPath] ?? null,
-          setFolderDepthMode: (folderPath, depthMode) => {
-            void this.setFolderDepthMode(folderPath, depthMode);
-          },
           getDefaultContentMode: () => this.settings.defaultContentMode,
-          getFolderContentMode: (folderPath) => this.settings.folderContentModes[folderPath] ?? null,
-          setFolderContentMode: (folderPath, contentMode) => {
-            void this.setFolderContentMode(folderPath, contentMode);
-          },
+          getDefaultChildPreset: () => this.settings.defaultChildPreset,
           setFolderIcon: (folderPath, icon) => {
             void this.setFolderIcon(folderPath, icon);
           },
@@ -163,8 +152,9 @@ export default class FolderSpacesPlugin extends Plugin {
           },
           getAdaptiveCascadeParent: () => this.settings.adaptiveCascadeParent,
           getCascadeParentPreset: () => this.settings.cascadeParentPreset,
-          getDisableFolderNotesInFolderOnlyView: () => this.settings.disableFolderNotesInFolderOnlyView,
-          getAlwaysOpenInOtherPanel: () => this.settings.alwaysOpenInOtherPanel
+          getFolderNotesSettings: () => readFolderNotesSettings(this.app),
+          getAlwaysOpenInOtherPanel: () => this.settings.alwaysOpenInOtherPanel,
+          windowActiveFileTracker: this.windowActiveFileTracker
         })
     );
 
@@ -178,16 +168,28 @@ export default class FolderSpacesPlugin extends Plugin {
       isManagedWindow: (win) => isPopoutWindow(win)
     });
     this.registerEvent(
+      this.app.workspace.on("active-leaf-change", (leaf) => {
+        this.windowActiveFileTracker.trackActiveLeaf(leaf);
+      })
+    );
+    this.registerEvent(
+      this.app.workspace.on("file-open", (file) => {
+        this.windowActiveFileTracker.trackFileOpen(file);
+      })
+    );
+    this.registerEvent(
       this.app.workspace.on("layout-change", () => {
         this.refreshFolderSpaceNavigation();
         makePopoutViewsProtected(this.app.workspace);
         this.reconcileFolderSpaceBindings();
+        this.syncNativeExplorerParents();
       })
     );
     this.registerEvent(
       this.app.workspace.on("window-open", () => {
         makePopoutViewsProtected(this.app.workspace);
         this.reconcileFolderSpaceBindings();
+        this.syncNativeExplorerParents();
       })
     );
     this.registerEvent(
@@ -237,6 +239,7 @@ export default class FolderSpacesPlugin extends Plugin {
     releaseWorkspaceInterceptor("folder-spaces");
     disposePanelActivityTracker(this.app.workspace);
     this.panelBindingManager.clear();
+    this.windowActiveFileTracker.restoreAll();
     this.app.workspace.detachLeavesOfType(FOLDER_SPACES_VIEW_TYPE);
     this.app.workspace.detachLeavesOfType(LEGACY_FLAT_FILE_EXPLORER_VIEW_TYPE);
     releasePopoutLayoutEngine("folder-spaces");
@@ -257,51 +260,6 @@ export default class FolderSpacesPlugin extends Plugin {
     await this.saveData(this.settings);
     this.refreshFolderSpaces();
     this.refreshRibbonIcon();
-  }
-
-  private async setFolderViewMode(folderPath: string, viewMode: FolderSpaceViewMode): Promise<void> {
-    const normalizedPath = typeof folderPath === "string" ? folderPath.trim() : null;
-    if (normalizedPath === null) {
-      return;
-    }
-
-    await this.updateSettings({
-      ...this.settings,
-      folderViewModes: {
-        ...this.settings.folderViewModes,
-        [normalizedPath]: resolveViewMode(viewMode)
-      }
-    });
-  }
-
-  private async setFolderDepthMode(folderPath: string, depthMode: FolderSpaceDepthMode): Promise<void> {
-    const normalizedPath = typeof folderPath === "string" ? folderPath.trim() : null;
-    if (normalizedPath === null) {
-      return;
-    }
-
-    await this.updateSettings({
-      ...this.settings,
-      folderDepthModes: {
-        ...this.settings.folderDepthModes,
-        [normalizedPath]: resolveDepthMode(depthMode)
-      }
-    });
-  }
-
-  private async setFolderContentMode(folderPath: string, contentMode: FolderSpaceContentMode): Promise<void> {
-    const normalizedPath = typeof folderPath === "string" ? folderPath.trim() : null;
-    if (normalizedPath === null) {
-      return;
-    }
-
-    await this.updateSettings({
-      ...this.settings,
-      folderContentModes: {
-        ...this.settings.folderContentModes,
-        [normalizedPath]: resolveContentMode(contentMode)
-      }
-    });
   }
 
   private async setFolderSortOrder(folderPath: string, order: FolderSpaceSortOrder): Promise<void> {
@@ -473,15 +431,13 @@ export default class FolderSpacesPlugin extends Plugin {
   }
 
   /**
-   * 新 leaf 的初始檢視預設集：由父面板開啟的子面板套用 defaultChildPreset
-   * （autoApplyChildPreset 關閉時回退 defaultPreset），其餘新面板套用 defaultPreset。
-   * 只寫入初始 view state；若該 folder 已存有 per-folder 模式，setState 會以
-   * 已存模式為主（尊重使用者既有設定，不覆寫）。
+   * 新 leaf 的初始檢視預設集：由父面板開啟的子面板套用 defaultChildPreset，
+   * 其餘新面板套用 defaultPreset。檢視模式由各面板（panel）自行持有與持久化。
    */
   private getInitialPresetModes(
     parentPanelId?: string | null
   ): { viewMode: FolderSpaceViewMode; depthMode: FolderSpaceDepthMode; contentMode: FolderSpaceContentMode } | null {
-    const useChildPreset = Boolean(parentPanelId) && this.settings.autoApplyChildPreset;
+    const useChildPreset = Boolean(parentPanelId);
     const preset = getPreset(useChildPreset ? this.settings.defaultChildPreset : this.settings.defaultPreset);
     return preset ? presetToState(preset) : null;
   }
@@ -859,6 +815,7 @@ export default class FolderSpacesPlugin extends Plugin {
     }
     binding.attach();
     this.panelBindingManager.register(binding.handle);
+    this.windowActiveFileTracker.patchViewInstance(leaf.view as any);
   }
 
   /**
@@ -985,7 +942,11 @@ function createNativeExplorerBinding(
     },
     getFolderPath: () => null,
     setFolderPath: () => {},
-    onBindingChanged: () => {}
+    onBindingChanged: () => {},
+    get containerEl() {
+      return (leaf.view as { containerEl?: HTMLElement })?.containerEl ?? (leaf as { containerEl?: HTMLElement }).containerEl;
+    },
+    leaf
   };
 
   const attach = (): void => {

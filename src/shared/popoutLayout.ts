@@ -101,7 +101,12 @@ export function getWindowOfLeaf(leaf: WorkspaceLeaf | null | undefined): Window 
   if (!leaf) return null;
   const extLeaf = leaf as unknown as ExtendedWorkspaceLeaf;
   const container = extLeaf.containerEl || (leaf.view as { containerEl?: HTMLElement } | null)?.containerEl;
-  return container?.ownerDocument?.defaultView ?? null;
+  return (
+    container?.ownerDocument?.defaultView ??
+    ((extLeaf as unknown as { getContainer?: () => { win?: Window } }).getContainer?.()?.win) ??
+    ((extLeaf as unknown as { win?: Window }).win) ??
+    null
+  );
 }
 
 /** 測量 WorkspaceTabs 容器本身的 DOMRect（背景 tab 寬高為 0，需測 tabs 容器）。 */
@@ -1050,34 +1055,34 @@ export class PopoutLayoutEngine {
     const edge = this.getEdgeColumnElement(win, side);
     if (!edge) return null;
 
-    // 物理側欄標記優先：邊緣欄位仍帶該側 sidebar 標記即代表該側 sidebar 仍然存在。
-    // 關閉內容欄位造成的欄位數減少不得判為側欄缺失，否則補欄邏輯會在原本第 1 欄
-    // 左側誤補一個新欄（以 activity bar 第一個 view 填滿）。
-    const isSidebarForSide =
-      side === "left"
-        ? edge.classList.contains("mod-left-split")
-        : edge.classList.contains("mod-right-split");
-    if (isSidebarForSide) return edge;
-
     const configuredSides = this.sidebarSidesByWindow.get(win);
     if (configuredSides) {
       if (!configuredSides[side]) return null;
-      let requiredColumns: number;
-      if (typeof configuredSides.originalCount === "number") {
-        // 新式 hints：需求欄位數 = 原始欄位數 + activity bar 新開啟的側數。
-        // Professional 這類原始 2 欄的空間（兩側皆 sidebar）需求為 2；
-        // 原本 3 欄被 close all 破壞成 2 欄時需求為 3 → 回 null → 補欄。
-        const initialLeft = configuredSides.initialLeft ?? configuredSides.left;
-        const initialRight = configuredSides.initialRight ?? configuredSides.right;
-        const leftDelta = (configuredSides.left ? 1 : 0) - (initialLeft ? 1 : 0);
-        const rightDelta = (configuredSides.right ? 1 : 0) - (initialRight ? 1 : 0);
-        requiredColumns = configuredSides.originalCount + leftDelta + rightDelta;
-      } else {
-        // 舊式 hints（相容）：需求欄位數 = left + right + 1
-        requiredColumns = Number(configuredSides.left) + Number(configuredSides.right) + 1;
+
+      // 檢查是否為「新開啟 Activity Bar」的升級/補欄情境（Delta > 0）：
+      // 若該側是新開啟的（initial 為 false，目前為 true），需要有新增的欄位（originalCount + delta）。
+      const initialLeft = configuredSides.initialLeft ?? configuredSides.left;
+      const initialRight = configuredSides.initialRight ?? configuredSides.right;
+      const leftDelta = (configuredSides.left ? 1 : 0) - (initialLeft ? 1 : 0);
+      const rightDelta = (configuredSides.right ? 1 : 0) - (initialRight ? 1 : 0);
+      const deltaForSide = side === "left" ? leftDelta : rightDelta;
+
+      if (deltaForSide > 0 && typeof configuredSides.originalCount === "number") {
+        const requiredColumns = configuredSides.originalCount + leftDelta + rightDelta;
+        if (this.getTopLevelColumnElements(win).length < requiredColumns) return null;
       }
-      if (this.getTopLevelColumnElements(win).length < Math.max(2, requiredColumns)) return null;
-      return edge;
+
+      // 物理側欄標記優先：邊緣欄位（或其內部容器/tabs）仍帶該側 sidebar 標記即代表該側 sidebar 仍然存在。
+      const isSidebarForSide =
+        side === "left"
+          ? (edge.classList.contains("mod-left-split") || !!edge.querySelector(".mod-left-split"))
+          : (edge.classList.contains("mod-right-split") || !!edge.querySelector(".mod-right-split"));
+      if (isSidebarForSide) return edge;
+
+      // 正常運作狀態（非新開啟該側）：雙側皆開啟或單側開啟時，頂層需 ≥ 2 欄才能與對側或內容區共存
+      const topCount = this.getTopLevelColumnElements(win).length;
+      if (topCount >= 2) return edge;
+      return null;
     }
     return isSidebarColumnElement(edge) ? edge : null;
   }

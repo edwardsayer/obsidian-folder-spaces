@@ -37,6 +37,7 @@ const PATHS = {
     "sharedVersion.ts",
     "popoutLayoutRegistry.ts",
     "workspaceInterceptor.ts",
+    "windowActiveFileTracker.ts",
   ],
 };
 

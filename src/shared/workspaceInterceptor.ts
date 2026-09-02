@@ -1,5 +1,6 @@
-import { App, WorkspaceLeaf } from "obsidian";
+import { App, WorkspaceLeaf, TFile } from "obsidian";
 import { getWindowOfLeaf, isPopoutWindow, PopoutLayoutEngine } from "./popoutLayout.js";
+import { WindowActiveFileTracker } from "./windowActiveFileTracker.js";
 
 /**
  * Generic policy supplied by a plugin to the shared Workspace interceptor.
@@ -17,6 +18,12 @@ interface EnsureSideLeafOptions {
   split?: boolean;
   reveal?: boolean;
   state?: Record<string, unknown>;
+}
+
+interface EventSubscription {
+  name?: string;
+  fn?: unknown;
+  ctx?: unknown;
 }
 
 interface InterceptableWorkspace {
@@ -37,6 +44,8 @@ interface InterceptableWorkspace {
     direction?: "vertical" | "horizontal",
     before?: boolean
   ) => WorkspaceLeaf;
+  tryTrigger?: (subscription: EventSubscription, args: unknown[]) => void;
+  getActiveFile?: () => TFile | null;
   __workspaceInterceptorInstalled?: boolean;
   __workspaceInterceptorOriginalGetLeftLeaf?: (split: boolean) => WorkspaceLeaf | null;
   __workspaceInterceptorOriginalGetRightLeaf?: (split: boolean) => WorkspaceLeaf | null;
@@ -47,6 +56,11 @@ interface InterceptableWorkspace {
     side: "left" | "right",
     options?: EnsureSideLeafOptions
   ) => Promise<WorkspaceLeaf>;
+  __workspaceInterceptorOriginalTryTrigger?: (
+    subscription: EventSubscription,
+    args: unknown[]
+  ) => void;
+  __workspaceInterceptorOriginalGetActiveFile?: () => TFile | null;
 }
 
 interface OriginalWorkspaceMethods {
@@ -55,13 +69,18 @@ interface OriginalWorkspaceMethods {
   getLeaf: { hadOwn: boolean; value?: InterceptableWorkspace["getLeaf"] };
   getLeavesOfType: { hadOwn: boolean; value?: InterceptableWorkspace["getLeavesOfType"] };
   ensureSideLeaf: { hadOwn: boolean; value?: InterceptableWorkspace["ensureSideLeaf"] };
+  tryTrigger: { hadOwn: boolean; value?: InterceptableWorkspace["tryTrigger"] };
+  getActiveFile: { hadOwn: boolean; value?: InterceptableWorkspace["getActiveFile"] };
 }
 
 interface InterceptorState {
+  app: App;
   workspace: InterceptableWorkspace;
   participants: Map<string, WorkspaceInterceptorParticipant>;
+  tracker: WindowActiveFileTracker;
   installed: boolean;
   originalMethods?: OriginalWorkspaceMethods;
+  eventRefs?: unknown[];
 }
 
 type GlobalNamespace = typeof globalThis & {
@@ -73,16 +92,20 @@ function getState(app: App): InterceptorState {
   const existing = namespace.__obsidian_workspace_interceptor_state_v1__;
   if (existing) {
     if (existing.participants.size === 0 && !existing.installed) {
+      existing.app = app;
       existing.workspace = app.workspace as unknown as InterceptableWorkspace;
     }
     return existing;
   }
 
   const state: InterceptorState = {
+    app,
     workspace: app.workspace as unknown as InterceptableWorkspace,
     participants: new Map<string, WorkspaceInterceptorParticipant>(),
+    tracker: new WindowActiveFileTracker(app),
     installed: false,
     originalMethods: undefined,
+    eventRefs: [],
   };
   namespace.__obsidian_workspace_interceptor_state_v1__ = state;
   return state;
@@ -182,12 +205,11 @@ function routeGetLeaf(
   if (isNewContentLeafRequested) {
     // Route every explicit new tab/split request through the engine so a
     // content group remembered before a sidebar click remains the target.
-    const centerLeaf = newLeaf === "split"
-      ? engine.getCenterLeafSync(activeWindow)
-      : engine.getCenterLeafSync(activeWindow, newLeaf);
-    return newLeaf === "split"
-      ? splitCenterLeaf(state.workspace, centerLeaf)
-      : centerLeaf;
+    const centerLeaf =
+      newLeaf === "split"
+        ? engine.getCenterLeafSync(activeWindow)
+        : engine.getCenterLeafSync(activeWindow, newLeaf);
+    return newLeaf === "split" ? splitCenterLeaf(state.workspace, centerLeaf) : centerLeaf;
   }
 
   const activeLeaf = engine.getActiveLeafInWindow(activeWindow);
@@ -280,16 +302,32 @@ function install(state: InterceptorState): void {
   const workspace = state.workspace;
   state.originalMethods = {
     getLeftLeaf: { hadOwn: hasOwnMethod(workspace, "getLeftLeaf"), value: workspace.getLeftLeaf },
-    getRightLeaf: { hadOwn: hasOwnMethod(workspace, "getRightLeaf"), value: workspace.getRightLeaf },
+    getRightLeaf: {
+      hadOwn: hasOwnMethod(workspace, "getRightLeaf"),
+      value: workspace.getRightLeaf,
+    },
     getLeaf: { hadOwn: hasOwnMethod(workspace, "getLeaf"), value: workspace.getLeaf },
-    getLeavesOfType: { hadOwn: hasOwnMethod(workspace, "getLeavesOfType"), value: workspace.getLeavesOfType },
-    ensureSideLeaf: { hadOwn: hasOwnMethod(workspace, "ensureSideLeaf"), value: workspace.ensureSideLeaf },
+    getLeavesOfType: {
+      hadOwn: hasOwnMethod(workspace, "getLeavesOfType"),
+      value: workspace.getLeavesOfType,
+    },
+    ensureSideLeaf: {
+      hadOwn: hasOwnMethod(workspace, "ensureSideLeaf"),
+      value: workspace.ensureSideLeaf,
+    },
+    tryTrigger: { hadOwn: hasOwnMethod(workspace, "tryTrigger"), value: workspace.tryTrigger },
+    getActiveFile: {
+      hadOwn: hasOwnMethod(workspace, "getActiveFile"),
+      value: workspace.getActiveFile,
+    },
   };
   workspace.__workspaceInterceptorOriginalGetLeftLeaf = workspace.getLeftLeaf;
   workspace.__workspaceInterceptorOriginalGetRightLeaf = workspace.getRightLeaf;
   workspace.__workspaceInterceptorOriginalGetLeaf = workspace.getLeaf;
   workspace.__workspaceInterceptorOriginalGetLeavesOfType = workspace.getLeavesOfType;
   workspace.__workspaceInterceptorOriginalEnsureSideLeaf = workspace.ensureSideLeaf;
+  workspace.__workspaceInterceptorOriginalTryTrigger = workspace.tryTrigger;
+  workspace.__workspaceInterceptorOriginalGetActiveFile = workspace.getActiveFile;
 
   workspace.getLeftLeaf = function (split: boolean): WorkspaceLeaf | null {
     const original = state.originalMethods?.getLeftLeaf.value;
@@ -301,7 +339,11 @@ function install(state: InterceptorState): void {
   };
   workspace.getLeaf = function (newLeaf?: boolean | string): WorkspaceLeaf {
     const original = state.originalMethods?.getLeaf.value;
-    return routeGetLeaf(state, newLeaf) ?? original?.call(workspace, newLeaf) ?? (null as unknown as WorkspaceLeaf);
+    return (
+      routeGetLeaf(state, newLeaf) ??
+      original?.call(workspace, newLeaf) ??
+      (null as unknown as WorkspaceLeaf)
+    );
   };
   workspace.getLeavesOfType = function (type: string): WorkspaceLeaf[] {
     const original = state.originalMethods?.getLeavesOfType.value;
@@ -323,6 +365,53 @@ function install(state: InterceptorState): void {
     });
   };
 
+  // INTERNAL API: workspace.tryTrigger - 全域攔截 file-open 事件傳遞，依 View 所在視窗隔離廣播
+  workspace.tryTrigger = function (subscription: EventSubscription, args: unknown[]): void {
+    if (subscription && subscription.name === "file-open") {
+      const ctx = subscription.ctx;
+      if (ctx && typeof ctx === "object") {
+        const leaf = (ctx as { leaf?: WorkspaceLeaf }).leaf;
+        const containerEl = (ctx as { containerEl?: HTMLElement }).containerEl;
+        const target = leaf ?? containerEl;
+        if (target) {
+          if (!state.tracker.shouldProcessFileOpen(target as unknown as WorkspaceLeaf)) {
+            return;
+          }
+        }
+      }
+    }
+    const original = state.originalMethods?.tryTrigger.value;
+    if (original) {
+      return original.apply(this, [subscription, args]);
+    }
+  };
+
+  // INTERNAL API: workspace.getActiveFile - 視窗感知 active file 路由，優先取得當前 Popout 視窗作用檔案
+  workspace.getActiveFile = function (): TFile | null {
+    const activeWindow = getActivePopoutWindow(state);
+    if (activeWindow) {
+      const winFile = state.tracker.getActiveFileForWindow(activeWindow);
+      if (winFile) return winFile;
+    }
+    const original = state.originalMethods?.getActiveFile.value;
+    return original ? original.call(workspace) : null;
+  };
+
+  // 監聽 Workspace 事件以持續更新視窗作用檔案追蹤
+  const ws = state.app.workspace as unknown as {
+    on?: (name: string, cb: (...args: any[]) => void) => unknown;
+    offref?: (ref: unknown) => void;
+  };
+  if (ws && typeof ws.on === "function") {
+    const ref1 = ws.on("active-leaf-change", (leaf: WorkspaceLeaf | null) => {
+      state.tracker.trackActiveLeaf(leaf);
+    });
+    const ref2 = ws.on("file-open", (file: TFile | null) => {
+      state.tracker.trackFileOpen(file);
+    });
+    state.eventRefs = [ref1, ref2];
+  }
+
   workspace.__workspaceInterceptorInstalled = true;
   state.installed = true;
 }
@@ -337,12 +426,27 @@ function uninstall(state: InterceptorState): void {
     restoreMethod(workspace, "getLeaf", original.getLeaf);
     restoreMethod(workspace, "getLeavesOfType", original.getLeavesOfType);
     restoreMethod(workspace, "ensureSideLeaf", original.ensureSideLeaf);
+    restoreMethod(workspace, "tryTrigger", original.tryTrigger);
+    restoreMethod(workspace, "getActiveFile", original.getActiveFile);
   }
+
+  const ws = state.workspace as unknown as {
+    offref?: (ref: unknown) => void;
+  };
+  if (state.eventRefs && typeof ws.offref === "function") {
+    for (const ref of state.eventRefs) {
+      ws.offref(ref);
+    }
+    state.eventRefs = [];
+  }
+
   delete workspace.__workspaceInterceptorOriginalGetLeftLeaf;
   delete workspace.__workspaceInterceptorOriginalGetRightLeaf;
   delete workspace.__workspaceInterceptorOriginalGetLeaf;
   delete workspace.__workspaceInterceptorOriginalGetLeavesOfType;
   delete workspace.__workspaceInterceptorOriginalEnsureSideLeaf;
+  delete workspace.__workspaceInterceptorOriginalTryTrigger;
+  delete workspace.__workspaceInterceptorOriginalGetActiveFile;
   delete workspace.__workspaceInterceptorInstalled;
   state.originalMethods = undefined;
   state.installed = false;
@@ -367,3 +471,16 @@ export function releaseWorkspaceInterceptor(id: string): void {
   state.participants.delete(id);
   if (state.participants.size === 0) uninstall(state);
 }
+
+/** Get the shared WindowActiveFileTracker from the coordinator state. */
+export function getWorkspaceActiveFileTracker(app: App): WindowActiveFileTracker {
+  const state = getState(app);
+  return state.tracker;
+}
+
+export {
+  WindowActiveFileTracker,
+  type PatchableViewOnFileOpen,
+  type PatchableFileExplorerView,
+  type WindowActiveFileTrackerState,
+} from "./windowActiveFileTracker.js";

@@ -5,6 +5,7 @@ import {
   ItemView,
   Keymap,
   Menu,
+  MenuItem,
   Notice,
   TAbstractFile,
   TFile,
@@ -46,13 +47,16 @@ import {
 } from "./folder-space-routing-policy.js";
 import {
   FOLDER_SPACE_PRESETS,
+  applyPresetModes,
   getPreset,
   matchPreset,
   presetToState,
+  resolvePresetId,
   type FolderSpacePreset,
   type FolderSpacePresetId
 } from "./presets.js";
 import {
+  type CompareSortableOptions,
   compareSortableItems,
   DEFAULT_FOLDER_SPACE_SORT_ORDER,
   hasMatchingPathDescendant,
@@ -65,9 +69,16 @@ import { getWindowOfLeaf, isPopoutWindow } from "./shared/popoutLayout.js";
 import type { PopoutLayoutEngine } from "./shared/popoutLayout.js";
 import {
   generatePanelId,
+  toggleLinkedViewsHighlight,
   type FolderPathChangeOptions,
   type PanelBindingManager
 } from "./panel-binding.js";
+import type { WindowActiveFileTracker } from "./shared/windowActiveFileTracker.js";
+import {
+  resolveFolderNote,
+  type FolderNoteInfo,
+  type FolderNotesPluginSettings
+} from "./folder-note-compat.js";
 
 import { FOLDER_SPACES_VIEW_TYPE } from "./api.js";
 export { FOLDER_SPACES_VIEW_TYPE };
@@ -81,14 +92,9 @@ export interface FolderSpaceViewOptions {
   getIcon(): string;
   getFolderIcon?(folderPath: string | null): string;
   getDefaultViewMode?(): FolderSpaceViewMode;
-  getFolderViewMode?(folderPath: string): FolderSpaceViewMode | null;
-  setFolderViewMode?(folderPath: string, viewMode: FolderSpaceViewMode): void | Promise<void>;
   getDefaultDepthMode?(): FolderSpaceDepthMode;
-  getFolderDepthMode?(folderPath: string): FolderSpaceDepthMode | null;
-  setFolderDepthMode?(folderPath: string, depthMode: FolderSpaceDepthMode): void | Promise<void>;
   getDefaultContentMode?(): FolderSpaceContentMode;
-  getFolderContentMode?(folderPath: string): FolderSpaceContentMode | null;
-  setFolderContentMode?(folderPath: string, contentMode: FolderSpaceContentMode): void | Promise<void>;
+  getDefaultChildPreset?(): FolderSpacePresetId;
   getFolderSortOrder?(folderPath: string): FolderSpaceSortOrder | null;
   setFolderSortOrder?(folderPath: string, order: FolderSpaceSortOrder): void | Promise<void>;
   setFolderIcon?(folderPath: string, icon: string): void | Promise<void>;
@@ -98,8 +104,9 @@ export interface FolderSpaceViewOptions {
   popoutLayoutEngine?: PopoutLayoutEngine;
   getAdaptiveCascadeParent?(): boolean;
   getCascadeParentPreset?(): FolderSpacePresetId;
-  getDisableFolderNotesInFolderOnlyView?(): boolean;
+  getFolderNotesSettings?(): FolderNotesPluginSettings | null;
   getAlwaysOpenInOtherPanel?(): boolean;
+  windowActiveFileTracker?: WindowActiveFileTracker;
 }
 
 interface InternalTreeItem {
@@ -189,14 +196,9 @@ interface PatchedExplorerView extends InternalExplorerView {
   flatRenameEditors?: WeakSet<HTMLElement>;
   viewSettingsButtonEl?: HTMLElement;
   getDefaultViewMode(): FolderSpaceViewMode;
-  getFolderViewMode(folderPath: string): FolderSpaceViewMode | null;
-  setFolderViewMode(folderPath: string, viewMode: FolderSpaceViewMode): void | Promise<void>;
   getDefaultDepthMode(): FolderSpaceDepthMode;
-  getFolderDepthMode(folderPath: string): FolderSpaceDepthMode | null;
-  setFolderDepthMode(folderPath: string, depthMode: FolderSpaceDepthMode): void | Promise<void>;
   getDefaultContentMode(): FolderSpaceContentMode;
-  getFolderContentMode(folderPath: string): FolderSpaceContentMode | null;
-  setFolderContentMode(folderPath: string, contentMode: FolderSpaceContentMode): void | Promise<void>;
+  getDefaultChildPreset(): FolderSpacePresetId;
   getFolderSortOrder(folderPath: string): FolderSpaceSortOrder | null;
   setFolderSortOrder(folderPath: string, order: FolderSpaceSortOrder): void | Promise<void>;
   setFolderIcon(folderPath: string, icon: string): void | Promise<void>;
@@ -235,9 +237,12 @@ interface PatchedExplorerView extends InternalExplorerView {
   isAdaptiveParentActive?: boolean;
   openSearchInWindow?: (win: Window, query: string) => Promise<WorkspaceLeaf>;
   addAction?(icon: string, title: string, callback: (evt: MouseEvent) => unknown): HTMLElement | null;
-  getDisableFolderNotesInFolderOnlyView(): boolean;
+  getFolderNotesSettings(): FolderNotesPluginSettings | null;
   getAlwaysOpenInOtherPanel(): boolean;
   drillDownStack?: DrillDownStackEntry[];
+  windowActiveFileTracker?: WindowActiveFileTracker;
+  /** folder note 解析快取：folderPath → FolderNoteInfo（渲染時更新）。 */
+  folderNoteInfoByFolder?: Map<string, FolderNoteInfo>;
 }
 
 export interface DrillDownStackEntry {
@@ -529,11 +534,7 @@ function hasNativeExplorerCapabilities(value: unknown): value is InternalExplore
   }
 
   const view = value as Partial<InternalExplorerView>;
-  if (!isHTMLElement(view.containerEl) || !isHTMLElement(view.navFileContainerEl)) {
-    return false;
-  }
-
-  if (!isObject(view.fileItems) || !isMapLike(view.files) || !hasNativeTreeCapabilities(view.tree)) {
+  if (!isHTMLElement(view.containerEl)) {
     return false;
   }
 
@@ -541,40 +542,9 @@ function hasNativeExplorerCapabilities(value: unknown): value is InternalExplore
     "load",
     "getState",
     "setState",
-    "getDisplayText",
-    "requestSort",
-    "sort",
-    "revealInFolder",
-    "handlePaste",
-    "onCreateNewFolderClick",
-    "onCreateNewNoteClick",
-    "onDelete",
-    "onFileContextMenu",
-    "onRename",
-    "revealActiveFile",
     "createAbstractFile",
     "getSortedFolderItems"
   ]);
-}
-
-function hasNativeTreeCapabilities(value: unknown): value is InternalTree {
-  if (!isObject(value) || !hasMethods(value, ["clearSelectedDoms", "setFocusedItem"])) {
-    return false;
-  }
-
-  const infinityScroll = value.infinityScroll;
-  if (!isObject(infinityScroll) || !hasMethods(infinityScroll, ["compute", "invalidateAll", "scrollIntoView"])) {
-    return false;
-  }
-
-  const rootEl = infinityScroll.rootEl;
-  const vChildren = isObject(rootEl) ? rootEl.vChildren : null;
-  return (
-    isObject(rootEl) &&
-    isObject(vChildren) &&
-    hasMethods(vChildren, ["setChildren"]) &&
-    hasMethods(value, ["handleItemSelection"])
-  );
 }
 
 function hasMethods(value: object, names: string[]): boolean {
@@ -592,10 +562,6 @@ function isHTMLElement(value: unknown): value is HTMLElement {
     typeof value.appendChild === "function" &&
     typeof value.querySelector === "function"
   );
-}
-
-function isMapLike(value: unknown): value is Map<HTMLElement, TAbstractFile> {
-  return isObject(value) && typeof value.get === "function";
 }
 
 function patchExplorerView(
@@ -632,6 +598,8 @@ function patchExplorerView(
   view.followParent = true;
   view.bindingManager = options.bindingManager ?? null;
   view.popoutLayoutEngine = options.popoutLayoutEngine;
+  view.windowActiveFileTracker = options.windowActiveFileTracker;
+  options.windowActiveFileTracker?.patchViewInstance(view);
   view.setFolderPath = (path: string | null, changeOptions?: FolderPathChangeOptions) =>
     setFolderPath(view, path, changeOptions);
   view.isAlive = () => Boolean(view.leaf) && view.leaf.view === view;
@@ -642,28 +610,18 @@ function patchExplorerView(
   };
   view.addAction = (icon: string, title: string, callback: (evt: MouseEvent) => unknown) =>
     addFolderSpaceAction(view, icon, title, callback);
-
   (view as unknown as { isFolderSpace: boolean }).isFolderSpace = true;
   (view as unknown as { getFolderPath: () => string | null }).getFolderPath = () => view.folderPath;
   view.getDefaultViewMode = () => normalizeViewMode(options.getDefaultViewMode?.());
-  view.getFolderViewMode = (folderPath: string) => normalizeOptionalViewMode(options.getFolderViewMode?.(folderPath));
-  view.setFolderViewMode = (folderPath: string, viewMode: FolderSpaceViewMode) =>
-    options.setFolderViewMode?.(folderPath, viewMode);
   view.getDefaultDepthMode = () => normalizeDepthMode(options.getDefaultDepthMode?.());
-  view.getFolderDepthMode = (folderPath: string) => normalizeOptionalDepthMode(options.getFolderDepthMode?.(folderPath));
-  view.setFolderDepthMode = (folderPath: string, depthMode: FolderSpaceDepthMode) =>
-    options.setFolderDepthMode?.(folderPath, depthMode);
   view.getDefaultContentMode = () => normalizeContentMode(options.getDefaultContentMode?.());
-  view.getFolderContentMode = (folderPath: string) =>
-    normalizeOptionalContentMode(options.getFolderContentMode?.(folderPath));
-  view.setFolderContentMode = (folderPath: string, contentMode: FolderSpaceContentMode) =>
-    options.setFolderContentMode?.(folderPath, contentMode);
+  view.getDefaultChildPreset = () => resolvePresetId(options.getDefaultChildPreset?.(), "contents");
   view.getFolderSortOrder = (folderPath: string) => normalizeOptionalSortOrder(options.getFolderSortOrder?.(folderPath));
   view.setFolderSortOrder = (folderPath: string, order: FolderSpaceSortOrder) =>
     options.setFolderSortOrder?.(folderPath, order);
   view.setFolderIcon = (folderPath: string, icon: string) => options.setFolderIcon?.(folderPath, icon);
   view.openSearchInWindow = options.openSearchInWindow;
-  view.getDisableFolderNotesInFolderOnlyView = () => options.getDisableFolderNotesInFolderOnlyView?.() ?? true;
+  view.getFolderNotesSettings = () => options.getFolderNotesSettings?.() ?? null;
   view.getAlwaysOpenInOtherPanel = () => options.getAlwaysOpenInOtherPanel?.() ?? true;
   view.getViewType = () => FOLDER_SPACES_VIEW_TYPE;
   view.getIcon = () => getFolderSpaceIcon(options, view.folderPath);
@@ -719,24 +677,14 @@ function patchExplorerView(
   view.setState = async (
     state: unknown,
     result: ViewStateResult,
-    changeOptions?: FolderPathChangeOptions
+    _changeOptions?: FolderPathChangeOptions
   ) => {
     try {
       const nextState = normalizeState(state);
-      const preservedViewSettings = changeOptions?.preserveViewSettings
-        ? {
-            viewMode: view.viewMode,
-            depthMode: view.depthMode,
-            contentMode: view.contentMode
-          }
-        : null;
       view.folderPath = nextState.folderPath;
-      view.viewMode = preservedViewSettings?.viewMode ??
-        resolveFolderViewMode(view, nextState.folderPath, nextState.viewMode);
-      view.depthMode = preservedViewSettings?.depthMode ??
-        resolveFolderDepthMode(view, nextState.folderPath, nextState.depthMode);
-      view.contentMode = preservedViewSettings?.contentMode ??
-        resolveFolderContentMode(view, nextState.folderPath, nextState.contentMode);
+      view.viewMode = normalizeViewMode(nextState.viewMode ?? view.viewMode ?? view.getDefaultViewMode());
+      view.depthMode = normalizeDepthMode(nextState.depthMode ?? view.depthMode ?? view.getDefaultDepthMode());
+      view.contentMode = normalizeContentMode(nextState.contentMode ?? view.contentMode ?? view.getDefaultContentMode());
       if (view.contentMode === "files") {
         view.viewMode = "flat";
       }
@@ -826,6 +774,7 @@ function patchExplorerView(
         view.revealActiveFile();
       }
       updateTerminalFolderIndicators(view);
+      updateFolderNoteIndicators(view);
       return;
     }
 
@@ -928,7 +877,6 @@ function patchExplorerView(
       return;
     }
 
-    void view.setFolderViewMode(view.folderPath, view.viewMode);
     refreshFolderPresentation(view, true);
   };
 
@@ -955,6 +903,7 @@ function initializeEmptyState(view: PatchedExplorerView): void {
   // 原生 ⋮ 那列），只保留自訂的路徑列；新增/排序等動作可從路徑列的右鍵
   // folder menu 取得。樣式見 styles.css 的 .folder-spaces-compact-header。
   view.containerEl.addClass("folder-spaces-compact-header");
+  view.containerEl.addClass("is-folder-space");
 
   const emptyState = view.containerEl.createDiv({ cls: "folder-spaces-empty-state" });
   const title = emptyState.createDiv({ cls: "folder-spaces-empty-title" });
@@ -1130,6 +1079,16 @@ function initializeEmptyState(view: PatchedExplorerView): void {
     void view.app.workspace.requestSaveLayout();
   });
 
+  view.registerDomEvent(statusIcon, "mouseenter", () => {
+    if (view.parentPanelId && (!view.drillDownStack || view.drillDownStack.length === 0)) {
+      highlightLinkedViews(view, "parent", true);
+    }
+  });
+
+  view.registerDomEvent(statusIcon, "mouseleave", () => {
+    highlightLinkedViews(view, "parent", false);
+  });
+
   // View Settings Button -> Open display options dropdown
   view.registerDomEvent(viewSettingsButton, "click", (event: MouseEvent) => {
     event.preventDefault();
@@ -1145,6 +1104,7 @@ function initializeEmptyState(view: PatchedExplorerView): void {
   view.flatItemParents = new Map();
   view.flatItemLabels = new Map();
   view.flatRenameEditors = new WeakSet();
+  view.folderNoteInfoByFolder = new Map();
   view.rootEmptyStateEl = emptyState;
   view.rootEmptyTitleEl = title;
   view.rootEmptyDescriptionEl = description;
@@ -1322,6 +1282,16 @@ function expandAllFoldersInView(view: PatchedExplorerView): void {
 
 /** Reveal 目前 active file（展開祖先並捲動至可見）。 */
 function revealCurrentFileInView(view: PatchedExplorerView): void {
+  const win = getWindowOfLeaf(view.leaf);
+  const activeFile =
+    view.windowActiveFileTracker?.getActiveFileForWindow(win) ??
+    view.app.workspace?.getActiveFile?.();
+  if (activeFile && isInsideRoot(view, activeFile.path)) {
+    if (typeof view.revealInFolder === "function") {
+      view.revealInFolder(activeFile);
+      return;
+    }
+  }
   if (typeof view.revealActiveFile === "function") {
     view.revealActiveFile();
   }
@@ -1367,9 +1337,6 @@ function setViewMode(view: PatchedExplorerView, mode: FolderSpaceViewMode): void
   restoreFlatItemParents(view);
   restoreFlatItemLabels(view);
   view.viewMode = effectiveMode;
-  if (view.folderPath) {
-    void view.setFolderViewMode(view.folderPath, effectiveMode);
-  }
   updateViewSettingsButton(view);
   if (effectiveMode === "flat") {
     scheduleFlatRefresh(view, "immediate");
@@ -1382,9 +1349,6 @@ function setViewMode(view: PatchedExplorerView, mode: FolderSpaceViewMode): void
 function setDepthMode(view: PatchedExplorerView, mode: FolderSpaceDepthMode): void {
   const changed = view.depthMode !== mode;
   view.depthMode = mode;
-  if (changed && view.folderPath) {
-    void view.setFolderDepthMode(view.folderPath, mode);
-  }
   updateViewSettingsButton(view);
   if (view.viewMode === "flat") {
     scheduleFlatRefresh(view, "immediate");
@@ -1415,9 +1379,6 @@ function setContentMode(view: PatchedExplorerView, mode: FolderSpaceContentMode)
     restoreFlatItemParents(view);
     restoreFlatItemLabels(view);
   }
-  if (view.folderPath) {
-    void view.setFolderContentMode(view.folderPath, mode);
-  }
   updateViewSettingsButton(view);
   view.requestSort();
   void view.app.workspace.requestSaveLayout();
@@ -1443,14 +1404,17 @@ export function drillDownToFolder(view: PatchedExplorerView, targetFolderPath: s
     contentMode: view.contentMode
   });
 
-  const targetViewMode = resolveFolderViewMode(view, targetFolderPath);
-  const targetDepthMode = resolveFolderDepthMode(view, targetFolderPath);
-  const targetContentMode = resolveFolderContentMode(view, targetFolderPath);
-
   view.folderPath = targetFolderPath;
-  view.viewMode = targetViewMode;
-  view.depthMode = targetDepthMode;
-  view.contentMode = targetContentMode;
+
+  const childPresetId = view.getDefaultChildPreset?.() ?? "contents";
+  const childPreset = getPreset(childPresetId);
+  if (childPreset) {
+    const modes = presetToState(childPreset);
+    view.viewMode = modes.viewMode;
+    view.depthMode = modes.depthMode;
+    view.contentMode = modes.contentMode;
+  }
+
   if (view.contentMode === "files") {
     view.viewMode = "flat";
   }
@@ -1502,9 +1466,6 @@ function setFolderPath(
   }
 
   const state = { ...view.getState(), folderPath } as Record<string, unknown>;
-  if (!changeOptions?.preserveViewSettings) {
-    delete state.viewMode;
-  }
   void view.setState(state, { history: false }, changeOptions).then(() => {
     // A user-initiated root change moves the parent panel's folder focus, so
     // the bound child follows (when its toggle is ON). Reloads restore state
@@ -1528,44 +1489,6 @@ function updateViewSettingsButton(view: PatchedExplorerView): void {
   setIcon(button, "lucide-sliders-horizontal");
 }
 
-function resolveFolderViewMode(
-  view: PatchedExplorerView,
-  folderPath: string | null,
-  stateViewMode?: FolderSpaceViewMode
-): FolderSpaceViewMode {
-  if (folderPath === null) {
-    return normalizeViewMode(stateViewMode ?? view.getDefaultViewMode());
-  }
-
-  return view.getFolderViewMode(folderPath) ?? normalizeViewMode(stateViewMode ?? view.getDefaultViewMode());
-}
-
-function resolveFolderDepthMode(
-  view: PatchedExplorerView,
-  folderPath: string | null,
-  stateDepthMode?: FolderSpaceDepthMode
-): FolderSpaceDepthMode {
-  if (folderPath === null) {
-    return normalizeDepthMode(stateDepthMode ?? view.getDefaultDepthMode());
-  }
-
-  return view.getFolderDepthMode(folderPath) ?? normalizeDepthMode(stateDepthMode ?? view.getDefaultDepthMode());
-}
-
-function resolveFolderContentMode(
-  view: PatchedExplorerView,
-  folderPath: string | null,
-  stateContentMode?: FolderSpaceContentMode
-): FolderSpaceContentMode {
-  if (folderPath === null) {
-    return normalizeContentMode(stateContentMode ?? view.getDefaultContentMode());
-  }
-
-  return (
-    view.getFolderContentMode(folderPath) ?? normalizeContentMode(stateContentMode ?? view.getDefaultContentMode())
-  );
-}
-
 /**
  * 建立 Folder Space view 時，原生 File Explorer 的 load() 會先以 root 內容
  * 渲染一次，而 setState（設定 folderPath）通常延遲數百毫秒才到達，導致子目錄
@@ -1580,9 +1503,9 @@ function applyInitialViewState(view: PatchedExplorerView): void {
   }
   const nextState = normalizeState(viewState.state);
   view.folderPath = nextState.folderPath;
-  view.viewMode = resolveFolderViewMode(view, view.folderPath, nextState.viewMode);
-  view.depthMode = resolveFolderDepthMode(view, view.folderPath, nextState.depthMode);
-  view.contentMode = resolveFolderContentMode(view, view.folderPath, nextState.contentMode);
+  view.viewMode = normalizeViewMode(nextState.viewMode ?? view.getDefaultViewMode());
+  view.depthMode = normalizeDepthMode(nextState.depthMode ?? view.getDefaultDepthMode());
+  view.contentMode = normalizeContentMode(nextState.contentMode ?? view.getDefaultContentMode());
   if (view.contentMode === "files") {
     view.viewMode = "flat";
   }
@@ -1592,16 +1515,8 @@ function normalizeViewMode(mode: unknown): FolderSpaceViewMode {
   return mode === "flat" ? "flat" : "tree";
 }
 
-function normalizeOptionalViewMode(mode: unknown): FolderSpaceViewMode | null {
-  return mode === "tree" || mode === "flat" ? mode : null;
-}
-
 function normalizeDepthMode(mode: unknown): FolderSpaceDepthMode {
   return mode === "one-level" || mode === "two-level" ? mode : "all-level";
-}
-
-function normalizeOptionalDepthMode(mode: unknown): FolderSpaceDepthMode | null {
-  return mode === "one-level" || mode === "two-level" || mode === "all-level" ? mode : null;
 }
 
 function getFolderDepthLimit(mode: FolderSpaceDepthMode): number | null {
@@ -1629,10 +1544,6 @@ function normalizeContentMode(mode: unknown): FolderSpaceContentMode {
     return mode;
   }
   return "all";
-}
-
-function normalizeOptionalContentMode(mode: unknown): FolderSpaceContentMode | null {
-  return mode === "folders" || mode === "files" || mode === "all" ? mode : null;
 }
 
 function filterByContentMode(view: PatchedExplorerView, items: InternalTreeItem[]): InternalTreeItem[] {
@@ -1690,6 +1601,58 @@ export function updateTerminalFolderIndicators(view: PatchedExplorerView): void 
 
     const isTerminal = isTerminalFolderItem(view, item.file);
     item.selfEl.toggleClass("is-terminal-folder", isTerminal);
+  }
+}
+
+/**
+ * Folder Note 相容層（見 doc/folder-note-compat-design.md）：
+ * 1. 為有 folder note 的資料夾掛載 note 圖示（名稱後方），點擊開啟 note。
+ * 2. 當 folder-notes 的 hideFolderNote 啟用時，為 folder note 檔案補掛
+ *    `.is-folder-note` class，讓 folder-notes 的 CSS（body.hide-folder-note
+ *    .is-folder-note { display:none }）跨樹隱藏該檔案。
+ *
+ * 每次渲染後（sort/renderChildren）呼叫，以 folder note 解析結果為準，
+ * 不依賴 folder-notes 自身的 class 掛載時序（其機制依賴原生 explorer 的
+ * fileItems，對 Folder Space 樹不保證生效）。
+ */
+function updateFolderNoteIndicators(view: PatchedExplorerView): void {
+  const folderNotesSettings = view.getFolderNotesSettings();
+  const resolved = view.folderNoteInfoByFolder ??= new Map<string, FolderNoteInfo>();
+
+  // 1. 對每個 folder 解析 note，並掛載/移除 has-folder-note class（提供 hover 底線視覺提示）
+  for (const item of Object.values(view.fileItems)) {
+    if (!item?.file || !(item.file instanceof TFolder)) {
+      continue;
+    }
+    const info = resolveFolderNote(item.file, {
+      folderNotesSettings,
+      hasFolderNoteClass: item.selfEl.hasClass("has-folder-note") || item.selfEl.getAttribute("data-has-folder-note") === "true"
+    });
+    resolved.set(item.file.path, info);
+
+    const titleContentEl = item.selfEl.querySelector(".nav-folder-title-content");
+    if (info.hasNote && info.notePath) {
+      item.selfEl.setAttribute("data-has-folder-note", "true");
+      titleContentEl?.addClass("has-folder-note");
+    } else {
+      item.selfEl.removeAttribute("data-has-folder-note");
+      titleContentEl?.removeClass("has-folder-note");
+    }
+  }
+
+  // 2. 對 folder note 檔案補掛/移除 .is-folder-note class
+  for (const item of Object.values(view.fileItems)) {
+    if (!item?.file || !(item.file instanceof TFile)) {
+      continue;
+    }
+    const parentFolder = item.file.parent;
+    const info = parentFolder ? resolved.get(parentFolder.path) : null;
+    const isNote = info?.hasNote && info.notePath === item.file.path;
+    if (isNote && info?.shouldHide) {
+      item.selfEl.addClass("is-folder-note");
+    } else {
+      item.selfEl.removeClass("is-folder-note");
+    }
   }
 }
 
@@ -1761,11 +1724,14 @@ function showViewSettingsDropdown(view: PatchedExplorerView, anchorEl: HTMLEleme
     item.setTitle(t("presetSection"));
     item.setDisabled(true);
   });
+  const modeMenuItems: Array<{ mode: string; item: MenuItem }> = [];
+  const presetMenuItems: Array<{ preset: FolderSpacePreset; item: MenuItem }> = [];
   for (const preset of FOLDER_SPACE_PRESETS) {
     menu.addItem((item) => {
       item.setTitle(presetLabel(preset.id));
       item.setChecked(matchPreset(view.viewMode, view.depthMode, view.contentMode) === preset.id);
       item.onClick(() => applyFolderSpacePreset(view, preset));
+      presetMenuItems.push({ preset, item });
     });
   }
   if (matchPreset(view.viewMode, view.depthMode, view.contentMode) === null) {
@@ -1781,12 +1747,14 @@ function showViewSettingsDropdown(view: PatchedExplorerView, anchorEl: HTMLEleme
     item.setTitle("Style: Tree view");
     item.setChecked(view.viewMode === "tree");
     item.onClick(() => setViewMode(view, "tree"));
+    modeMenuItems.push({ mode: "view:tree", item });
   });
 
   menu.addItem((item) => {
     item.setTitle("Style: Flat view");
     item.setChecked(view.viewMode === "flat");
     item.onClick(() => setViewMode(view, "flat"));
+    modeMenuItems.push({ mode: "view:flat", item });
   });
 
   menu.addSeparator();
@@ -1795,18 +1763,21 @@ function showViewSettingsDropdown(view: PatchedExplorerView, anchorEl: HTMLEleme
     item.setTitle("Depth: 1 level");
     item.setChecked(view.depthMode === "one-level");
     item.onClick(() => setDepthMode(view, "one-level"));
+    modeMenuItems.push({ mode: "depth:one-level", item });
   });
 
   menu.addItem((item) => {
     item.setTitle("Depth: 2 levels");
     item.setChecked(view.depthMode === "two-level");
     item.onClick(() => setDepthMode(view, "two-level"));
+    modeMenuItems.push({ mode: "depth:two-level", item });
   });
 
   menu.addItem((item) => {
     item.setTitle("Depth: All levels");
     item.setChecked(view.depthMode === "all-level");
     item.onClick(() => setDepthMode(view, "all-level"));
+    modeMenuItems.push({ mode: "depth:all-level", item });
   });
 
   menu.addSeparator();
@@ -1815,18 +1786,21 @@ function showViewSettingsDropdown(view: PatchedExplorerView, anchorEl: HTMLEleme
     item.setTitle("Show: Folders");
     item.setChecked(view.contentMode === "folders");
     item.onClick(() => setContentMode(view, "folders"));
+    modeMenuItems.push({ mode: "content:folders", item });
   });
 
   menu.addItem((item) => {
     item.setTitle("Show: Files");
     item.setChecked(view.contentMode === "files");
     item.onClick(() => setContentMode(view, "files"));
+    modeMenuItems.push({ mode: "content:files", item });
   });
 
   menu.addItem((item) => {
     item.setTitle("Show: All");
     item.setChecked(view.contentMode === "all");
     item.onClick(() => setContentMode(view, "all"));
+    modeMenuItems.push({ mode: "content:all", item });
   });
 
   menu.addSeparator();
@@ -1850,9 +1824,118 @@ function showViewSettingsDropdown(view: PatchedExplorerView, anchorEl: HTMLEleme
       return;
     }
 
+    registerPresetHoverHighlight(view, presetMenuItems, modeMenuItems);
+
     const rect = anchorEl.getBoundingClientRect();
     menu.showAtPosition({ x: rect.left, y: rect.bottom + 4 }, menuDocument);
   }, 0);
+}
+
+/**
+ * Preset / mode 選單雙向 cross-highlight：
+ * 1. hover preset 項目 → 下方 Style / Depth / Show 中 highlight 該 preset 對應的
+ *    view type、depth、content 項目，該 preset 項目自身也維持高亮。
+ * 2. hover 下方任一 mode 項目 → 以「該選項 + 另兩個維度目前的勾選值」組合出候選
+ *    (view, depth, content)，若與某個 preset 完全相符，僅 highlight 該 preset；
+ *    底下選項在此模式下不套用任何 highlight。
+ * 離開（或 hover 其他項目）時清除全部 highlight。
+ */
+function registerPresetHoverHighlight(
+  view: PatchedExplorerView,
+  presetItems: Array<{ preset: FolderSpacePreset; item: MenuItem }>,
+  modeItems: Array<{ mode: string; item: MenuItem }>
+): void {
+  const byMode = new Map<string, MenuItem[]>();
+  for (const { mode, item } of modeItems) {
+    const items = byMode.get(mode) ?? [];
+    items.push(item);
+    byMode.set(mode, items);
+  }
+
+  const clearModeHighlights = (): void => {
+    for (const items of byMode.values()) {
+      for (const item of items) {
+        getMenuItemElement(item)?.removeClass("folder-spaces-preset-mode-match");
+      }
+    }
+  };
+
+  const highlightModeForPreset = (preset: FolderSpacePreset): void => {
+    for (const [mode, items] of byMode) {
+      const highlighted =
+        (mode === "view:tree" && preset.viewMode === "tree") ||
+        (mode === "view:flat" && preset.viewMode === "flat") ||
+        (mode === "depth:one-level" && preset.depthMode === "one-level") ||
+        (mode === "depth:two-level" && preset.depthMode === "two-level") ||
+        (mode === "depth:all-level" && preset.depthMode === "all-level") ||
+        (mode === "content:folders" && preset.contentMode === "folders") ||
+        (mode === "content:files" && preset.contentMode === "files") ||
+        (mode === "content:all" && preset.contentMode === "all");
+      for (const item of items) {
+        getMenuItemElement(item)?.toggleClass("folder-spaces-preset-mode-match", highlighted);
+      }
+    }
+  };
+
+  const highlightPreset = (presetId: FolderSpacePresetId | null): void => {
+    for (const { preset, item } of presetItems) {
+      getMenuItemElement(item)?.toggleClass(
+        "folder-spaces-preset-mode-match",
+        presetId !== null && preset.id === presetId
+      );
+    }
+  };
+
+  const applyPresetHover = (preset: FolderSpacePreset | null): void => {
+    clearModeHighlights();
+    highlightPreset(null);
+    if (preset) {
+      highlightModeForPreset(preset);
+      highlightPreset(preset.id);
+    }
+  };
+
+  const applyModeHover = (hoveredMode: string): void => {
+    clearModeHighlights();
+    const [hoveredDimension, hoveredValue] = hoveredMode.split(":");
+    const viewMode =
+      hoveredDimension === "view" && (hoveredValue === "tree" || hoveredValue === "flat")
+        ? hoveredValue
+        : view.viewMode;
+    const depthMode =
+      hoveredDimension === "depth" &&
+      (hoveredValue === "one-level" || hoveredValue === "two-level" || hoveredValue === "all-level")
+        ? hoveredValue
+        : view.depthMode;
+    const contentMode =
+      hoveredDimension === "content" && (hoveredValue === "folders" || hoveredValue === "files" || hoveredValue === "all")
+        ? hoveredValue
+        : view.contentMode;
+    highlightPreset(matchPreset(viewMode, depthMode, contentMode));
+  };
+
+  const clearAll = (): void => {
+    clearModeHighlights();
+    highlightPreset(null);
+  };
+
+  for (const { preset, item } of presetItems) {
+    const el = getMenuItemElement(item);
+    if (!el) {
+      continue;
+    }
+    el.addEventListener("mouseenter", () => applyPresetHover(preset));
+    el.addEventListener("mouseleave", () => clearAll());
+  }
+
+  for (const { mode, item } of modeItems) {
+    const el = getMenuItemElement(item);
+    if (!el) {
+      continue;
+    }
+    el.addEventListener("mouseenter", () => applyModeHover(mode));
+    el.addEventListener("mouseleave", () => clearAll());
+  }
 }
 
 function openPluginSettings(app: App): void {
@@ -1871,10 +1954,11 @@ function openPluginSettings(app: App): void {
  * 持久化到該 folder 的 per-folder 記錄（files→flat 由 presetToState 確保一致）。
  */
 export function applyFolderSpacePreset(view: PatchedExplorerView, preset: FolderSpacePreset): void {
-  const state = presetToState(preset);
-  setViewMode(view, state.viewMode);
-  setDepthMode(view, state.depthMode);
-  setContentMode(view, state.contentMode);
+  applyPresetModes(preset, {
+    setContentMode: (mode) => setContentMode(view, mode),
+    setDepthMode: (mode) => setDepthMode(view, mode),
+    setViewMode: (mode) => setViewMode(view, mode)
+  });
 }
 
 /**
@@ -1926,6 +2010,23 @@ function normalizePanelId(value: unknown): string | null | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+/**
+ * 高亮父子連動的兩個視圖（模擬 Obsidian 原生 Open linked view 的 hover 效果）。
+ */
+export function highlightLinkedViews(
+  view: PatchedExplorerView,
+  targetType: "parent" | "child",
+  highlight: boolean
+): void {
+  toggleLinkedViewsHighlight(
+    view.bindingManager,
+    view.panelId,
+    view.leaf ?? view,
+    targetType,
+    highlight
+  );
+}
+
 export function refreshChildBindingUI(view: PatchedExplorerView): void {
   const button = view.followParentButtonEl;
   if (!button) {
@@ -1936,6 +2037,7 @@ export function refreshChildBindingUI(view: PatchedExplorerView): void {
 }
 
 function refreshSyncFocusMarker(view: PatchedExplorerView): void {
+  highlightLinkedViews(view, "child", false);
   view.syncFocusDecorationObserver?.disconnect();
   view.syncFocusDecorationObserver = undefined;
   view.syncFocusItem?.selfEl.removeClass("folder-spaces-sync-focus");
@@ -1985,6 +2087,12 @@ function refreshSyncFocusMarker(view: PatchedExplorerView): void {
     }
   });
   setIcon(iconEl, "link-2");
+  view.registerDomEvent(iconEl, "mouseenter", () => {
+    highlightLinkedViews(view, "child", true);
+  });
+  view.registerDomEvent(iconEl, "mouseleave", () => {
+    highlightLinkedViews(view, "child", false);
+  });
   view.syncFocusItem = targetItem;
   view.syncFocusIconEl = iconEl;
   view.syncFocusDecorationObserver = new MutationObserver((mutations) => {
@@ -2309,7 +2417,32 @@ function followParentScopeOnFolderClick(view: PatchedExplorerView, event: MouseE
     return;
   }
 
-  const folderPath = resolveClickedFolderPath(view.navFileContainerEl, view.files, event);
+  if (event.button !== 0 || Keymap.isModEvent(event)) {
+    return;
+  }
+
+  const target = event.target;
+  if (!(target instanceof Element)) {
+    return;
+  }
+
+  // ① 點擊 Chevron 箭頭：交由原生或自訂開合處理，不下傳亦不下鑽
+  if (target.closest(".collapse-icon")) {
+    return;
+  }
+
+  const folderTitleEl = target.closest<HTMLElement>(".nav-folder-title");
+  if (!folderTitleEl || !view.navFileContainerEl.contains(folderTitleEl)) {
+    return;
+  }
+
+  const folderPath = folderTitleEl.getAttribute("data-path") ||
+    (() => {
+      const treeItemEl = folderTitleEl.closest<HTMLElement>(".tree-item");
+      const file = treeItemEl ? view.files?.get(treeItemEl) : undefined;
+      return file instanceof TFolder ? file.path : null;
+    })();
+
   if (!folderPath) {
     return;
   }
@@ -2318,62 +2451,83 @@ function followParentScopeOnFolderClick(view: PatchedExplorerView, event: MouseE
   const child = manager?.getChildOf(view.panelId);
   const hasFollowingChild = Boolean(child && child.isAlive() && child.followParent);
 
+  const isNameClick = Boolean(target.closest(".nav-folder-title-content"));
+
   const folder = view.app.vault.getAbstractFileByPath(folderPath);
-  const isTerminal = folder instanceof TFolder ? isTerminalFolderItem(view, folder) : true;
+  const folderNotesSettings = view.getFolderNotesSettings();
+  const folderNoteInfo = folder instanceof TFolder
+    ? resolveFolderNote(folder, {
+        folderNotesSettings,
+        hasFolderNoteClass:
+          folderTitleEl.hasClass("has-folder-note") ||
+          folderTitleEl.getAttribute("data-has-folder-note") === "true" ||
+          Boolean(folderTitleEl.querySelector(".nav-folder-title-content.has-folder-note"))
+      })
+    : null;
 
-  if (hasFollowingChild && manager) {
-    manager.propagateFrom(view.panelId, folderPath);
-  } else if (isTerminal) {
-    // 獨立面板（Standalone）或無子面板連動時：
-    // 若為端點資料夾（已達深度上限或無子項），就地下鑽
-    drillDownToFolder(view, folderPath);
-  }
-  // 若為獨立面板且非端點資料夾，放行讓原生目錄樹執行展開／收合
+  if (isNameClick) {
+    // ② 點擊 Name 文字區
+    if (folderNoteInfo?.hasNote && folderNoteInfo.notePath) {
+      // 有 Folder Note：開啟筆記，不開合、不下傳、不下鑽
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      const noteFile = view.app.vault.getAbstractFileByPath(folderNoteInfo.notePath);
+      if (noteFile instanceof TFile) {
+        void openFileInContentArea(view, noteFile, false);
+      }
+      return;
+    }
 
-  // 攔截 Folder Notes 開啟（除非按住 Mod 鍵）：
-  // 1. 接龍模式下（已驅動子面板）
-  // 2. 端點下鑽時（已執行下鑽）
-  // 3. 純資料夾導覽模式下（專注於目錄導航）
-  const shouldSuppressFolderNote =
-    hasFollowingChild || isTerminal || view.contentMode === "folders";
-
-  if (
-    shouldSuppressFolderNote &&
-    view.getDisableFolderNotesInFolderOnlyView() &&
-    !Keymap.isModEvent(event)
-  ) {
-    event.stopImmediatePropagation();
+    // 無 Folder Note
+    if (hasFollowingChild && manager) {
+      // 雙面板模式：連動子面板
+      manager.propagateFrom(view.panelId, folderPath);
+      event.stopImmediatePropagation();
+    } else {
+      // 單面板模式：就地展開／收合（100% 回歸原生 File Explorer）
+      const item = view.fileItems?.[folderPath];
+      if (item && typeof item.setCollapsed === "function" && item.file instanceof TFolder) {
+        void item.setCollapsed(!item.collapsed, true);
+      }
+      event.stopImmediatePropagation();
+    }
+  } else {
+    // ③ 點擊 Row 背景 / 空白區 / Icon
+    if (hasFollowingChild && manager) {
+      // 雙面板模式：連動子面板
+      manager.propagateFrom(view.panelId, folderPath);
+      event.stopImmediatePropagation();
+    } else {
+      // 單面板模式：立即就地下鑽（In-place Drill-down）
+      drillDownToFolder(view, folderPath);
+      event.stopImmediatePropagation();
+    }
   }
 }
 
 /**
- * Consumes a folder-name click at the tree container so the parent's own tree
- * does not collapse/expand while it navigates a bound child or drills down a terminal folder.
- * For non-terminal folders without a bound child, we let the click toggle expand/collapse natively.
+ * Consumes a folder-name/background click at the tree container so the native explorer
+ * does not collapse/expand or race with our custom actions.
  */
 function blockParentToggleOnFolderNameClick(view: PatchedExplorerView, event: MouseEvent): void {
-  const folderPath = resolveClickedFolderPath(view.navFileContainerEl, view.files, event);
-  if (!folderPath) {
+  if (event.button !== 0 || Keymap.isModEvent(event)) {
     return;
   }
 
-  const manager = view.bindingManager;
-  const child = manager?.getChildOf(view.panelId);
-  const hasFollowingChild = Boolean(child && child.isAlive() && child.followParent);
-
-  if (hasFollowingChild) {
-    event.preventDefault();
-    event.stopPropagation();
+  const target = event.target;
+  if (!(target instanceof Element) || target.closest(".collapse-icon")) {
     return;
   }
 
-  // 獨立面板：只有當點擊端點資料夾時才阻斷原生開合並轉為下鑽；非端點資料夾則允許原生開合
-  const folder = view.app.vault.getAbstractFileByPath(folderPath);
-  const isTerminal = folder instanceof TFolder ? isTerminalFolderItem(view, folder) : true;
-  if (isTerminal) {
-    event.preventDefault();
-    event.stopPropagation();
+  const folderTitleEl = target.closest<HTMLElement>(".nav-folder-title");
+  if (!folderTitleEl || !view.navFileContainerEl.contains(folderTitleEl)) {
+    return;
   }
+
+  // 攔截所有非 Chevron 的點擊在 container 階段的冒泡，避免原生 explorer 重複觸發 toggle
+  event.preventDefault();
+  event.stopPropagation();
 }
 
 /**
@@ -2667,9 +2821,13 @@ function resolveFileOpenTargetLeaf(view: PatchedExplorerView): WorkspaceLeaf | n
 
   const candidateLeaves: WorkspaceLeaf[] = [];
   workspace.iterateAllLeaves((leaf) => {
+    const leafWin = leaf.getContainer()?.win;
+    if (leafWin !== currentWin) {
+      return;
+    }
+
     if (
       leaf !== currentLeaf &&
-      leaf.getRoot() === currentRoot &&
       leaf.parent !== currentTabGroup &&
       !isToolViewType(leaf.getViewState().type)
     ) {
@@ -2827,12 +2985,13 @@ function patchRootFolderMenu(menu: Menu, view: PatchedExplorerView, rootFolder: 
   }
 }
 
-function getMenuItemElement(item: { titleEl?: HTMLElement }): HTMLElement | null {
+function getMenuItemElement(item: object): HTMLElement | null {
+  const withTitle = item as { titleEl?: HTMLElement };
   const privateItem = item as { dom?: HTMLElement; el?: HTMLElement };
   return (
     privateItem.dom ??
     privateItem.el ??
-    item.titleEl?.closest<HTMLElement>(".menu-item") ??
+    withTitle.titleEl?.closest<HTMLElement>(".menu-item") ??
     null
   );
 }
@@ -3125,7 +3284,6 @@ function startFlatFolderRename(
     const newPath = `${parentPath}${nextName}`;
     try {
       await view.app.fileManager.renameFile(folder, newPath);
-      void view.setFolderViewMode(newPath, view.viewMode);
       restore(getFlatFolderLabel(view, folder));
       scheduleFlatRefresh(view, "immediate");
     } catch (error) {
@@ -3219,7 +3377,6 @@ function startInlineRootFolderRename(view: PatchedExplorerView, rootFolder: TFol
     const newPath = `${parentPath}${trimmed}`;
     try {
       await view.app.fileManager.renameFile(rootFolder, newPath);
-      void view.setFolderViewMode(newPath, view.viewMode);
       restore(newPath);
       await view.setState({ ...view.getState(), folderPath: newPath }, { history: false });
       refreshLeafHeader(view);
@@ -3410,6 +3567,9 @@ function renderChildren(view: PatchedExplorerView, items: InternalTreeItem[]): v
   view.navFileContainerEl.scrollTop = scrollTop;
   view.tree.infinityScroll.compute();
   refreshSyncFocusMarker(view);
+  // 樹更新後重掛 folder note 圖示與 .is-folder-note class（不依賴 isShown，
+  // 確保 sidebar/popout 等任何顯示狀態的 leaf 都有 icon）。
+  updateFolderNoteIndicators(view);
 }
 
 function getFlatItems(view: PatchedExplorerView, rootFolder: TFolder): InternalTreeItem[] {
@@ -3422,6 +3582,10 @@ function getFlatItems(view: PatchedExplorerView, rootFolder: TFolder): InternalT
   const showFiles = view.contentMode !== "folders";
   const query = view.filterQuery.trim();
   const order = getEffectiveSortOrder(view);
+  const compareOptions: CompareSortableOptions = {
+    basePath: view.folderPath,
+    useRelativePath: true
+  };
 
   const rememberParent = (item: InternalTreeItem, parent: InternalTreeItem | null): void => {
     view.flatItemParents ??= new Map();
@@ -3436,6 +3600,7 @@ function getFlatItems(view: PatchedExplorerView, rootFolder: TFolder): InternalT
     depth: number = 1,
     parentMatched: boolean = false
   ): void => {
+    const depthLimit = getFolderDepthLimit(view.depthMode);
     const folderItem = view.fileItems[folder.path];
     const ownPathMatches = !query || pathContainsQuery(query, relativePath);
     const folderKept = !query || parentMatched || ownPathMatches || hasMatchingPathDescendant(folder, query);
@@ -3448,42 +3613,48 @@ function getFlatItems(view: PatchedExplorerView, rootFolder: TFolder): InternalT
     }
 
     if (showFiles) {
-      // When folders are hidden, files lose their folder group and are
-      // promoted to the root level instead.
-      const fileParent = showFolders ? folderItem ?? rootItem : rootItem;
-      const files = sortByOrder(
-        folder.children.filter((file): file is TFile => {
-          if (!(file instanceof TFile)) {
-            return false;
-          }
-          // match 到的資料夾顯示其直屬檔案；否則僅顯示路徑包含 query 的檔案
-          return !query || ownPathMatches || pathContainsQuery(query, `${relativePath}/${file.name}`);
-        }),
-        order
-      );
-      for (const file of files) {
-        const fileItem = view.fileItems[file.path];
-        if (fileItem) {
-          rememberParent(fileItem, fileParent);
-          if (!showFolders) {
-            // 資料夾群組隱藏時，檔案被提升到 root 層並以「相對路徑/完整檔名」
-            // 標示（含副檔名），讓每個檔案都能看出所在目錄。此分支只在
-            // contentMode=files 時發生（viewMode 必為 flat）。
-            setFlatItemLabel(view, fileItem, `${relativePath}/${file.name}`);
-            flatItems.push(fileItem);
+      // 資料夾隱藏（contentMode=files）時，此資料夾內的檔案處於相對於 root 的 depth + 1 層。
+      // 若有 depthLimit（如 List 預設集 depth=1），子目錄內的檔案（depth >= 1）不可被收集。
+      const shouldCollectFiles = showFolders || depthLimit === null || depth < depthLimit;
+      if (shouldCollectFiles) {
+        // When folders are hidden, files lose their folder group and are
+        // promoted to the root level instead.
+        const fileParent = showFolders ? folderItem ?? rootItem : rootItem;
+        const files = sortByOrder(
+          folder.children.filter((file): file is TFile => {
+            if (!(file instanceof TFile)) {
+              return false;
+            }
+            // match 到的資料夾顯示其直屬檔案；否則僅顯示路徑包含 query 的檔案
+            return !query || ownPathMatches || pathContainsQuery(query, `${relativePath}/${file.name}`);
+          }),
+          order,
+          compareOptions
+        );
+        for (const file of files) {
+          const fileItem = view.fileItems[file.path];
+          if (fileItem) {
+            rememberParent(fileItem, fileParent);
+            if (!showFolders) {
+              // 資料夾群組隱藏時，檔案被提升到 root 層並以「相對路徑/完整檔名」
+              // 標示（含副檔名），讓每個檔案都能看出所在目錄。此分支只在
+              // contentMode=files 時發生（viewMode 必為 flat）。
+              setFlatItemLabel(view, fileItem, `${relativePath}/${file.name}`);
+              flatItems.push(fileItem);
+            }
           }
         }
       }
     }
 
-    const depthLimit = getFolderDepthLimit(view.depthMode);
     if (depthLimit !== null && depth >= depthLimit) {
       return;
     }
 
     const childFolders = sortByOrder(
       folder.children.filter((file): file is TFolder => file instanceof TFolder),
-      order
+      order,
+      compareOptions
     );
 
     for (const child of childFolders) {
@@ -3496,7 +3667,8 @@ function getFlatItems(view: PatchedExplorerView, rootFolder: TFolder): InternalT
   // （depth 限制由 collectFolderGroup 內部的遞迴深度控管，含 one-level）。
   const rootFolders = sortByOrder(
     rootFolder.children.filter((file): file is TFolder => file instanceof TFolder),
-    order
+    order,
+    compareOptions
   );
   for (const folder of rootFolders) {
     collectFolderGroup(folder, folder.name, 1);
@@ -3511,7 +3683,8 @@ function getFlatItems(view: PatchedExplorerView, rootFolder: TFolder): InternalT
         }
         return !query || pathContainsQuery(query, file.name);
       }),
-      order
+      order,
+      compareOptions
     );
     for (const file of rootFiles) {
       const fileItem = view.fileItems[file.path];
@@ -3526,9 +3699,7 @@ function getFlatItems(view: PatchedExplorerView, rootFolder: TFolder): InternalT
     }
   }
 
-  if (!showFolders) {
-    flatItems.sort((left, right) => compareSortableItems(left.file, right.file, order));
-  }
+  flatItems.sort((left, right) => compareSortableItems(left.file, right.file, order, compareOptions));
 
   return flatItems;
 }
@@ -3564,13 +3735,17 @@ function applyDisplayFilterAndSort(
   containerFolder: TFolder
 ): InternalTreeItem[] {
   const query = view.filterQuery.trim();
+  const compareOptions: CompareSortableOptions = {
+    basePath: view.folderPath,
+    useRelativePath: view.viewMode === "flat" || view.contentMode === "files"
+  };
   if (!query) {
-    return items.sort((left, right) => compareSortableItems(left.file, right.file, order));
+    return items.sort((left, right) => compareSortableItems(left.file, right.file, order, compareOptions));
   }
 
   const containerMatched = pathContainsQuery(query, getRelativePathOf(view, containerFolder.path));
   const filtered = items.filter((item) => containerMatched || displayItemMatchesQuery(view, item, query));
-  return filtered.sort((left, right) => compareSortableItems(left.file, right.file, order));
+  return filtered.sort((left, right) => compareSortableItems(left.file, right.file, order, compareOptions));
 }
 
 function displayItemMatchesQuery(view: PatchedExplorerView, item: InternalTreeItem, query: string): boolean {
@@ -3795,6 +3970,28 @@ class FolderSpaceUnsupportedView extends ItemView {
   constructor(leaf: WorkspaceLeaf, private readonly options: FolderSpaceViewOptions) {
     super(leaf);
     this.icon = options.getFolderIcon?.(this.folderPath) ?? options.getIcon();
+    this.trySelfHealing();
+  }
+
+  private trySelfHealing(): void {
+    const heal = () => {
+      const creator = getFileExplorerCreator(this.app);
+      if (creator) {
+        void this.leaf.setViewState({
+          type: FOLDER_SPACES_VIEW_TYPE,
+          state: this.getState(),
+          active: this.leaf.getViewState().active
+        });
+      }
+    };
+
+    if (this.app.workspace.layoutReady) {
+      window.setTimeout(heal, 50);
+    } else {
+      this.app.workspace.onLayoutReady(() => {
+        heal();
+      });
+    }
   }
 
   getRootPath(): string {
@@ -3803,7 +4000,9 @@ class FolderSpaceUnsupportedView extends ItemView {
 
   override async onOpen(): Promise<void> {
     this.render();
-    new Notice(t("nativeCompatibilityDescription"));
+    if (this.app.workspace.layoutReady && !getFileExplorerCreator(this.app)) {
+      new Notice(t("nativeCompatibilityDescription"));
+    }
   }
 
   override getViewType(): string {

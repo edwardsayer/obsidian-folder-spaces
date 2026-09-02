@@ -188,72 +188,44 @@ test("normalizeSettings defaults and normalizes depth and content modes", () => 
   const defaults = normalizeSettings({});
   assert.equal(defaults.defaultDepthMode, "all-level");
   assert.equal(defaults.defaultContentMode, "all");
-  assert.deepEqual(defaults.folderDepthModes, {});
-  assert.deepEqual(defaults.folderContentModes, {});
 
   const custom = normalizeSettings({
     defaultDepthMode: "two-level",
-    defaultContentMode: "folders",
-    folderDepthModes: {
-      "Projects/Active": "two-level",
-      "Projects/Archive": "bogus",
-      "": "one-level"
-    },
-    folderContentModes: {
-      "Projects/Active": "files",
-      "Projects/Archive": "bogus",
-      "": "files"
-    }
+    defaultContentMode: "folders"
   });
   assert.equal(custom.defaultDepthMode, "two-level");
   assert.equal(custom.defaultContentMode, "folders");
-  assert.equal(custom.folderDepthModes["Projects/Active"], "two-level");
-  assert.equal("Projects/Archive" in custom.folderDepthModes, false);
-  assert.equal("" in custom.folderDepthModes, false);
-  assert.equal(custom.folderContentModes["Projects/Active"], "files");
-  assert.equal("Projects/Archive" in custom.folderContentModes, false);
-  assert.equal("" in custom.folderContentModes, false);
 });
 
 test("normalizeSettings defaults and normalizes view presets", () => {
   const defaults = normalizeSettings({});
   assert.equal(defaults.defaultPreset, "explorer");
   assert.equal(defaults.defaultChildPreset, "contents");
-  assert.equal(defaults.autoApplyChildPreset, true);
   assert.equal(defaults.adaptiveCascadeParent, true);
   assert.equal(defaults.cascadeParentPreset, "navigate");
-  assert.equal(defaults.disableFolderNotesInFolderOnlyView, true);
 
   const custom = normalizeSettings({
     defaultPreset: "navigate",
     defaultChildPreset: "context",
-    autoApplyChildPreset: false,
     adaptiveCascadeParent: false,
     cascadeParentPreset: "columns",
-    disableFolderNotesInFolderOnlyView: false,
     defaultPresetBogus: "whatever"
   });
   assert.equal(custom.defaultPreset, "navigate");
   assert.equal(custom.defaultChildPreset, "context");
-  assert.equal(custom.autoApplyChildPreset, false);
   assert.equal(custom.adaptiveCascadeParent, false);
   assert.equal(custom.cascadeParentPreset, "columns");
-  assert.equal(custom.disableFolderNotesInFolderOnlyView, false);
 
   const invalid = normalizeSettings({
     defaultPreset: "bogus",
     defaultChildPreset: "bogus",
-    autoApplyChildPreset: "yes",
     adaptiveCascadeParent: "no",
-    cascadeParentPreset: "bogus",
-    disableFolderNotesInFolderOnlyView: "no"
+    cascadeParentPreset: "bogus"
   });
   assert.equal(invalid.defaultPreset, "explorer");
   assert.equal(invalid.defaultChildPreset, "contents");
-  assert.equal(invalid.autoApplyChildPreset, true);
   assert.equal(invalid.adaptiveCascadeParent, true);
   assert.equal(invalid.cascadeParentPreset, "navigate");
-  assert.equal(invalid.disableFolderNotesInFolderOnlyView, true);
 });
 
 test("normalizeSettings defaults and normalizes per-folder sort orders", () => {
@@ -281,16 +253,6 @@ test("migrateFolderPathInSettings renames paths and subpaths across all per-fold
       "Projects/Alpha/Sub": "lucide-star",
       "Notes": "lucide-folder"
     },
-    folderViewModes: {
-      "Projects/Alpha": "flat",
-      "Projects/Alpha/Sub": "tree"
-    },
-    folderDepthModes: {
-      "Projects/Alpha": "one-level"
-    },
-    folderContentModes: {
-      "Projects/Alpha/Sub": "files"
-    },
     folderSortOrders: {
       "Projects/Alpha": { key: "mtime", dir: "desc" }
     }
@@ -306,10 +268,6 @@ test("migrateFolderPathInSettings renames paths and subpaths across all per-fold
   assert.equal("Projects/Alpha/Sub" in settings.folderIcons, false);
   assert.equal(settings.folderIcons["Notes"], "lucide-folder");
 
-  assert.equal(settings.folderViewModes["Projects/Beta"], "flat");
-  assert.equal(settings.folderViewModes["Projects/Beta/Sub"], "tree");
-  assert.equal(settings.folderDepthModes["Projects/Beta"], "one-level");
-  assert.equal(settings.folderContentModes["Projects/Beta/Sub"], "files");
   assert.deepEqual(settings.folderSortOrders["Projects/Beta"], { key: "mtime", dir: "desc" });
 
   // No-op for non-existent path
@@ -323,10 +281,6 @@ test("pruneFolderPathFromSettings deletes paths and subpaths across all per-fold
       "Projects/Alpha/Sub": "lucide-star",
       "Notes": "lucide-folder"
     },
-    folderViewModes: {
-      "Projects/Alpha": "flat",
-      "Projects/Alpha/Sub": "tree"
-    },
     folderSortOrders: {
       "Projects/Alpha": { key: "mtime", dir: "desc" }
     }
@@ -337,7 +291,6 @@ test("pruneFolderPathFromSettings deletes paths and subpaths across all per-fold
 
   assert.equal("Projects/Alpha" in settings.folderIcons, false);
   assert.equal("Projects/Alpha/Sub" in settings.folderIcons, false);
-  assert.equal("Projects/Alpha" in settings.folderViewModes, false);
   assert.equal("Projects/Alpha" in settings.folderSortOrders, false);
   assert.equal(settings.folderIcons["Notes"], "lucide-folder");
 
@@ -352,17 +305,6 @@ test("pruneOrphanFolderSettings prunes non-existing folder entries across all ma
       "Projects/Deleted": "lucide-star",
       "": "lucide-folders"
     },
-    folderViewModes: {
-      "Projects/Active": "flat",
-      "Projects/Ghost": "tree"
-    },
-    folderDepthModes: {
-      "Projects/Ghost": "one-level"
-    },
-    folderContentModes: {
-      "Projects/Active": "folders",
-      "Projects/Ghost": "files"
-    },
     folderSortOrders: {
       "Projects/Active": { key: "mtime", dir: "desc" },
       "Projects/Ghost": { key: "ctime", dir: "asc" }
@@ -375,9 +317,5 @@ test("pruneOrphanFolderSettings prunes non-existing folder entries across all ma
 
   assert.equal("Projects/Active" in settings.folderIcons, true);
   assert.equal("Projects/Deleted" in settings.folderIcons, false);
-  assert.equal("Projects/Active" in settings.folderViewModes, true);
-  assert.equal("Projects/Ghost" in settings.folderViewModes, false);
-  assert.equal("Projects/Ghost" in settings.folderDepthModes, false);
-  assert.equal("Projects/Ghost" in settings.folderContentModes, false);
   assert.equal("Projects/Ghost" in settings.folderSortOrders, false);
 });

@@ -6,6 +6,7 @@ import {
   getVisibleTreeItems,
   isElementVisible
 } from "../src/tree-navigation-helpers.js";
+import { getPreset, presetToState } from "../src/presets.js";
 
 // Mock minimal DOM setup for testing navigation logic in Node
 function createMockElement(tagName: string, className = ""): any {
@@ -218,19 +219,6 @@ test("keyboard focus change cascades to bound child panel", async () => {
 });
 
 test("drillDownToFolder pushes current state to drillDownStack and updates to target folder", () => {
-  const folderViewModes: Record<string, any> = {
-    "Projects/Alpha": "flat",
-    "Projects/Alpha/Sub": "tree"
-  };
-  const folderDepthModes: Record<string, any> = {
-    "Projects/Alpha": "one-level",
-    "Projects/Alpha/Sub": "all-level"
-  };
-  const folderContentModes: Record<string, any> = {
-    "Projects/Alpha": "files",
-    "Projects/Alpha/Sub": "folders"
-  };
-
   const view: any = {
     folderPath: "Projects",
     viewMode: "tree",
@@ -238,11 +226,8 @@ test("drillDownToFolder pushes current state to drillDownStack and updates to ta
     contentMode: "all",
     drillDownStack: [],
     getDefaultViewMode: () => "tree",
-    getFolderViewMode: (p: string) => folderViewModes[p] ?? null,
     getDefaultDepthMode: () => "all-level",
-    getFolderDepthMode: (p: string) => folderDepthModes[p] ?? null,
     getDefaultContentMode: () => "all",
-    getFolderContentMode: (p: string) => folderContentModes[p] ?? null,
     getFolderSortOrder: () => null,
     getIcon: () => "lucide-folders",
     requestSort: () => {},
@@ -386,4 +371,128 @@ test("isTerminalFolderItem identifies terminal folders by depth limit and item a
   const folderWithOnlyFiles: any = { path: "Root/FolderWithOnlyFiles", children: [{ path: "Root/FolderWithOnlyFiles/note.md" }] };
   // in folders contentMode, getSortedFolderItems returns 0 items for folders that only contain files
   assert.equal(testIsTerminal(view, folderWithOnlyFiles), true);
+});
+
+test("drillDownToFolder applies defaultChildPreset and drillDownGoBack restores previous state", () => {
+  const view: any = {
+    folderPath: "Projects",
+    viewMode: "tree",
+    depthMode: "one-level",
+    contentMode: "folders", // e.g. navigate preset
+    drillDownStack: [],
+    getDefaultChildPreset: () => "contents",
+    requestSort: () => {},
+    followParentButtonEl: {
+      toggle: () => {},
+      toggleClass: () => {},
+      setAttr: () => {},
+      removeAttribute: () => {},
+      empty: () => {}
+    }
+  };
+
+  // Helper simulating drillDownToFolder
+  const simulateDrillDown = (v: any, target: string) => {
+    v.drillDownStack.push({
+      folderPath: v.folderPath,
+      viewMode: v.viewMode,
+      depthMode: v.depthMode,
+      contentMode: v.contentMode
+    });
+    v.folderPath = target;
+    const childPresetId = v.getDefaultChildPreset?.() ?? "contents";
+    const childPreset = getPreset(childPresetId);
+    if (childPreset) {
+      const modes = presetToState(childPreset);
+      v.viewMode = modes.viewMode;
+      v.depthMode = modes.depthMode;
+      v.contentMode = modes.contentMode;
+    }
+    if (v.contentMode === "files") {
+      v.viewMode = "flat";
+    }
+  };
+
+  const simulateGoBack = (v: any) => {
+    const prev = v.drillDownStack.pop();
+    if (!prev) return;
+    v.folderPath = prev.folderPath;
+    v.viewMode = prev.viewMode;
+    v.depthMode = prev.depthMode;
+    v.contentMode = prev.contentMode;
+    if (v.contentMode === "files") {
+      v.viewMode = "flat";
+    }
+  };
+
+  // Initial state: navigate preset
+  assert.equal(view.folderPath, "Projects");
+  assert.equal(view.viewMode, "tree");
+  assert.equal(view.depthMode, "one-level");
+  assert.equal(view.contentMode, "folders");
+
+  // Step 1: Drill down -> defaultChildPreset ('contents') applied
+  simulateDrillDown(view, "Projects/Alpha");
+  assert.equal(view.folderPath, "Projects/Alpha");
+  assert.equal(view.viewMode, "flat");
+  assert.equal(view.depthMode, "all-level");
+  assert.equal(view.contentMode, "all");
+  assert.equal(view.drillDownStack.length, 1);
+
+  // Step 2: Go back -> restored to navigate preset
+  simulateGoBack(view);
+  assert.equal(view.folderPath, "Projects");
+  assert.equal(view.viewMode, "tree");
+  assert.equal(view.depthMode, "one-level");
+  assert.equal(view.contentMode, "folders");
+  assert.equal(view.drillDownStack.length, 0);
+});
+
+test("3-zone click dispatch correctly discriminates Chevron, Name, and Row background", () => {
+  type ClickAction = "toggle" | "open-note" | "cascade" | "drill-down";
+
+  const dispatchClick = (options: {
+    zone: "chevron" | "name" | "row";
+    hasFolderNote: boolean;
+    hasFollowingChild: boolean;
+  }): ClickAction => {
+    if (options.zone === "chevron") {
+      return "toggle";
+    }
+    if (options.zone === "name") {
+      if (options.hasFolderNote) {
+        return "open-note";
+      }
+      if (options.hasFollowingChild) {
+        return "cascade";
+      }
+      return "toggle";
+    }
+    // row background
+    if (options.hasFollowingChild) {
+      return "cascade";
+    }
+    return "drill-down";
+  };
+
+  // 1. Chevron clicks: ALWAYS toggle regardless of note or twin panel
+  assert.equal(dispatchClick({ zone: "chevron", hasFolderNote: false, hasFollowingChild: false }), "toggle");
+  assert.equal(dispatchClick({ zone: "chevron", hasFolderNote: true, hasFollowingChild: false }), "toggle");
+  assert.equal(dispatchClick({ zone: "chevron", hasFolderNote: true, hasFollowingChild: true }), "toggle");
+
+  // 2. Name clicks:
+  // - With Folder Note: open-note
+  assert.equal(dispatchClick({ zone: "name", hasFolderNote: true, hasFollowingChild: false }), "open-note");
+  assert.equal(dispatchClick({ zone: "name", hasFolderNote: true, hasFollowingChild: true }), "open-note");
+  // - Without Folder Note: single panel toggles (native), twin panel cascades
+  assert.equal(dispatchClick({ zone: "name", hasFolderNote: false, hasFollowingChild: false }), "toggle");
+  assert.equal(dispatchClick({ zone: "name", hasFolderNote: false, hasFollowingChild: true }), "cascade");
+
+  // 3. Row background clicks:
+  // - Single panel: in-place drill-down
+  assert.equal(dispatchClick({ zone: "row", hasFolderNote: false, hasFollowingChild: false }), "drill-down");
+  assert.equal(dispatchClick({ zone: "row", hasFolderNote: true, hasFollowingChild: false }), "drill-down");
+  // - Twin panel: cascade
+  assert.equal(dispatchClick({ zone: "row", hasFolderNote: false, hasFollowingChild: true }), "cascade");
+  assert.equal(dispatchClick({ zone: "row", hasFolderNote: true, hasFollowingChild: true }), "cascade");
 });

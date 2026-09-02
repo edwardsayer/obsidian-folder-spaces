@@ -19,6 +19,7 @@
     "src/settings.ts",
     "src/presets.ts",
     "src/folder-space-sort-filter.ts",
+    "src/folder-note-compat.ts",
     "tests/**/*.ts"
   ]
 }

@@ -63,8 +63,6 @@ type LocaleKey =
   | "settingsDefaultPresetDesc"
   | "settingsDefaultChildPresetName"
   | "settingsDefaultChildPresetDesc"
-  | "settingsAutoApplyChildPresetName"
-  | "settingsAutoApplyChildPresetDesc"
   | "settingsAdaptiveCascadeParentName"
   | "settingsAdaptiveCascadeParentDesc"
   | "settingsCascadeParentPresetName"
@@ -74,9 +72,14 @@ type LocaleKey =
   | "presetColumns"
   | "presetContents"
   | "presetFiles"
+  | "presetList"
   | "presetContext"
   | "presetCustom"
   | "presetSection"
+  | "presetTableHeaderPreset"
+  | "presetTableHeaderViewType"
+  | "presetTableHeaderDepth"
+  | "presetTableHeaderContent"
   | "actionFilter"
   | "filterPlaceholder"
   | "actionClearFilter"
@@ -92,10 +95,9 @@ type LocaleKey =
   | "actionCollapseAll"
   | "actionExpandAll"
   | "actionOpenSettings"
+  | "actionOpenFolderNote"
   | "settingsPresetsReferenceHeading"
   | "settingsPresetsReferenceDesc"
-  | "settingsDisableFolderNotesInFolderOnlyName"
-  | "settingsDisableFolderNotesInFolderOnlyDesc"
   | "settingsCascadeSection"
   | "settingsAlwaysOpenInOtherPanelName"
   | "settingsAlwaysOpenInOtherPanelDesc";
@@ -145,9 +147,9 @@ const ENGLISH: LocaleTable = {
   settingsShowRibbonIconDesc: "Show a Folder Space icon in the ribbon to open the folder picker.",
   settingsDefaultFollowParentName: "Follow parent panel",
   settingsDefaultFollowParentDesc: "Whether new child panels sync their folder focus with the parent panel by default.",
-  settingsSameWindowName: "Same window",
+  settingsSameWindowName: "Sync focus in same window",
   settingsSameWindowDesc: "Whether child panels opened in the same window sync folder focus with parent by default.",
-  settingsNewWindowName: "New window",
+  settingsNewWindowName: "Sync focus in new window",
   settingsNewWindowDesc: "Whether child panels opened in a new window sync folder focus with parent by default.",
   settingsDisplayOptionsName: "Display options",
   settingsDisplayOptionsDesc: "Default display settings for Folder Space views.",
@@ -166,21 +168,24 @@ const ENGLISH: LocaleTable = {
   settingsDefaultPresetDesc: "Preset applied to new Folder Space panels.",
   settingsDefaultChildPresetName: "Default child panel preset",
   settingsDefaultChildPresetDesc: "Preset applied to new child panels opened from a parent panel.",
-  settingsAutoApplyChildPresetName: "Auto-apply child panel preset",
-  settingsAutoApplyChildPresetDesc: "Apply the child preset to panels opened from a parent panel.",
   settingsAdaptiveCascadeParentName: "Adaptive parent panel mode",
   settingsAdaptiveCascadeParentDesc:
-    "Automatically switch parent panels to a folder-only navigation preset when a child panel is attached.",
+    "Automatically switch parent panels to a folder-only navigation preset when child panels are active, and restore when detached.",
   settingsCascadeParentPresetName: "Parent panel navigation preset",
-  settingsCascadeParentPresetDesc: "Preset applied to the parent panel when child panels are active.",
+  settingsCascadeParentPresetDesc: "Folder-only navigation preset applied to parent panels when child panels are active.",
   presetExplorer: "Explorer",
   presetNavigate: "Navigate",
   presetColumns: "Columns",
   presetContents: "Contents",
   presetFiles: "Files",
+  presetList: "List",
   presetContext: "Context",
   presetCustom: "Custom",
   presetSection: "Preset",
+  presetTableHeaderPreset: "Preset",
+  presetTableHeaderViewType: "View type",
+  presetTableHeaderDepth: "Depth",
+  presetTableHeaderContent: "Content",
   actionFilter: "Filter files",
   filterPlaceholder: "Filter…",
   actionClearFilter: "Clear filter",
@@ -196,11 +201,9 @@ const ENGLISH: LocaleTable = {
   actionCollapseAll: "Collapse all",
   actionExpandAll: "Expand all",
   actionOpenSettings: "Open Folder Spaces settings",
+  actionOpenFolderNote: "Open folder note",
   settingsPresetsReferenceHeading: "Preset configurations reference",
-  settingsPresetsReferenceDesc: "Overview of the 6 built-in Folder Space view presets and their parameters.",
-  settingsDisableFolderNotesInFolderOnlyName: "Disable folder notes in folder-only view",
-  settingsDisableFolderNotesInFolderOnlyDesc:
-    "In folder-only navigation (e.g. Navigate preset) or drill-down, clicking a folder focuses on hierarchy navigation. Mod-click (Ctrl/Cmd) still opens the folder note.",
+  settingsPresetsReferenceDesc: "Overview of the 7 built-in Folder Space view presets and their parameters.",
   settingsCascadeSection: "Cascade & linking",
   settingsAlwaysOpenInOtherPanelName: "Always open in other panel",
   settingsAlwaysOpenInOtherPanelDesc:
@@ -250,9 +253,9 @@ const TRADITIONAL_CHINESE: LocaleTable = {
   settingsShowRibbonIconDesc: "在功能區顯示 Folder Space 圖示，點擊可開啟資料夾選擇器。",
   settingsDefaultFollowParentName: "跟隨父面板",
   settingsDefaultFollowParentDesc: "新開啟的子面板是否預設與父面板資料夾焦點連動。",
-  settingsSameWindowName: "同視窗",
+  settingsSameWindowName: "同視窗焦點連動",
   settingsSameWindowDesc: "在同視窗開啟的新子面板預設與父面板資料夾焦點連動。",
-  settingsNewWindowName: "新視窗",
+  settingsNewWindowName: "新視窗焦點連動",
   settingsNewWindowDesc: "在新視窗開啟的新子面板預設與父面板資料夾焦點連動。",
   settingsDisplayOptionsName: "顯示選項",
   settingsDisplayOptionsDesc: "Folder Space 檢視的預設顯示設定。",
@@ -271,21 +274,24 @@ const TRADITIONAL_CHINESE: LocaleTable = {
   settingsDefaultPresetDesc: "套用於新開啟的 Folder Space 面板的預設集。",
   settingsDefaultChildPresetName: "預設子面板檢視預設集",
   settingsDefaultChildPresetDesc: "由父面板開啟新子面板時套用的檢視預設集。",
-  settingsAutoApplyChildPresetName: "自動套用子面板預設集",
-  settingsAutoApplyChildPresetDesc: "從父面板開啟的子面板自動套用子面板預設集。",
   settingsAdaptiveCascadeParentName: "接龍自適應父面板模式",
   settingsAdaptiveCascadeParentDesc:
-    "當有子面板連動時，父面板自動切換為純目錄導覽模式；子面板關閉時自動還原。",
+    "當有子面板連動時，父面板自動切換為純目錄導覽預設集；子面板關閉時自動還原。",
   settingsCascadeParentPresetName: "父面板導覽預設集",
-  settingsCascadeParentPresetDesc: "有子面板連動時父面板套用的導覽預設集。",
+  settingsCascadeParentPresetDesc: "有子面板連動時，父面板套用的純目錄導覽預設集。",
   presetExplorer: "檔案總管",
   presetNavigate: "導覽",
   presetColumns: "欄位",
   presetContents: "內容",
   presetFiles: "檔案",
+  presetList: "清單",
   presetContext: "脈絡",
   presetCustom: "自訂",
   presetSection: "檢視預設集",
+  presetTableHeaderPreset: "檢視預設集",
+  presetTableHeaderViewType: "檢視類型",
+  presetTableHeaderDepth: "展開層級",
+  presetTableHeaderContent: "顯示內容",
   actionFilter: "過濾檔案",
   filterPlaceholder: "過濾…",
   actionClearFilter: "清除過濾",
@@ -301,11 +307,9 @@ const TRADITIONAL_CHINESE: LocaleTable = {
   actionCollapseAll: "全部收合",
   actionExpandAll: "全部展開",
   actionOpenSettings: "開啟 Folder Spaces 設定",
+  actionOpenFolderNote: "開啟資料夾筆記",
   settingsPresetsReferenceHeading: "預設集規格對照表",
-  settingsPresetsReferenceDesc: "Folder Space 6 大內建檢視預設集的維度參數與說明。",
-  settingsDisableFolderNotesInFolderOnlyName: "在純資料夾檢視中停用資料夾筆記",
-  settingsDisableFolderNotesInFolderOnlyDesc:
-    "在純資料夾導覽（如 Navigate 預設集）或下鑽時，點擊資料夾名稱專注於層級導航，按住 Mod (Ctrl/Cmd) 點擊仍可開啟資料夾筆記。",
+  settingsPresetsReferenceDesc: "Folder Space 7 大內建檢視預設集的維度參數與說明。",
   settingsCascadeSection: "雙面板接龍與連動",
   settingsAlwaysOpenInOtherPanelName: "總是開啟於其他面板",
   settingsAlwaysOpenInOtherPanelDesc:
@@ -323,7 +327,7 @@ const SIMPLIFIED_CHINESE: LocaleTable = {
   viewName: "Folder Space",
   emptyTitle: "未设置根目录",
   emptyMissingTitle: "已设置的根目录不可用",
-  emptyDescription: "请在默认文件管理器中右键点击文件夹，然后选择\u201cFolder Spaces\u201d。",
+  emptyDescription: "请在默认文件管理器中右键点击文件夹，然后选择“Folder Spaces”。",
   rootUnavailable: "所选根目录不可用。",
   nativeCompatibilityTitle: "Folder Spaces 无法使用",
   nativeCompatibilityDescription:
@@ -355,9 +359,9 @@ const SIMPLIFIED_CHINESE: LocaleTable = {
   settingsShowRibbonIconDesc: "在功能区显示 Folder Space 图标，点击可打开文件夹选择器。",
   settingsDefaultFollowParentName: "跟随父面板",
   settingsDefaultFollowParentDesc: "新打开的子面板是否默认与父面板文件夹焦点联动。",
-  settingsSameWindowName: "同窗口",
+  settingsSameWindowName: "同窗口焦点联动",
   settingsSameWindowDesc: "在同窗口打开的新子面板默认与父面板文件夹焦点联动。",
-  settingsNewWindowName: "新窗口",
+  settingsNewWindowName: "新窗口焦点联动",
   settingsNewWindowDesc: "在新窗口打开的新子面板默认与父面板文件夹焦点联动。",
   settingsDisplayOptionsName: "显示选项",
   settingsDisplayOptionsDesc: "Folder Space 视图的默认显示设置。",
@@ -376,21 +380,24 @@ const SIMPLIFIED_CHINESE: LocaleTable = {
   settingsDefaultPresetDesc: "应用于新打开的 Folder Space 面板的预设。",
   settingsDefaultChildPresetName: "默认子面板视图预设",
   settingsDefaultChildPresetDesc: "从父面板打开新的子面板时应用的视图预设。",
-  settingsAutoApplyChildPresetName: "自动应用子面板预设",
-  settingsAutoApplyChildPresetDesc: "从父面板打开的子面板自动应用子面板预设。",
   settingsAdaptiveCascadeParentName: "接龙自适应父面板模式",
   settingsAdaptiveCascadeParentDesc:
-    "当有子面板联动时，父面板自动切换为纯目录导航模式；子面板关闭时自动还原。",
-  settingsCascadeParentPresetName: "父面板导航预设",
-  settingsCascadeParentPresetDesc: "有子面板联动时父面板应用的导航预设。",
+    "当有子面板联动时，父面板自动切换为纯目录导览预设集；子面板关闭时自动还原。",
+  settingsCascadeParentPresetName: "父面板导览预设集",
+  settingsCascadeParentPresetDesc: "有子面板联动时，父面板套用的纯目录导览预设集。",
   presetExplorer: "文件列表",
   presetNavigate: "导航",
   presetColumns: "栏目",
   presetContents: "内容",
   presetFiles: "文件",
+  presetList: "清单",
   presetContext: "脉络",
   presetCustom: "自定义",
   presetSection: "视图预设",
+  presetTableHeaderPreset: "视图预设",
+  presetTableHeaderViewType: "视图类型",
+  presetTableHeaderDepth: "展开层级",
+  presetTableHeaderContent: "显示内容",
   actionFilter: "筛选文件",
   filterPlaceholder: "筛选…",
   actionClearFilter: "清除筛选",
@@ -406,11 +413,9 @@ const SIMPLIFIED_CHINESE: LocaleTable = {
   actionCollapseAll: "全部收起",
   actionExpandAll: "全部展开",
   actionOpenSettings: "打开 Folder Spaces 设置",
+  actionOpenFolderNote: "打开文件夹笔记",
   settingsPresetsReferenceHeading: "预设规格对照表",
-  settingsPresetsReferenceDesc: "Folder Space 6 大内置视图预设的维度参数与说明。",
-  settingsDisableFolderNotesInFolderOnlyName: "在纯文件夹视图中禁用文件夹笔记",
-  settingsDisableFolderNotesInFolderOnlyDesc:
-    "在纯文件夹导航（如 Navigate 预设集）或下钻时，点击文件夹名称专注于层级导航，按住 Mod (Ctrl/Cmd) 点击仍可打开文件夹笔记。",
+  settingsPresetsReferenceDesc: "Folder Space 7 大内置视图预设的维度参数与说明。",
   settingsCascadeSection: "双面板接龙与连动",
   settingsAlwaysOpenInOtherPanelName: "总是打开于其他面板",
   settingsAlwaysOpenInOtherPanelDesc:
@@ -464,7 +469,8 @@ const PRESET_NAME_KEYS: Record<FolderSpacePresetId, LocaleKey> = {
   columns: "presetColumns",
   contents: "presetContents",
   files: "presetFiles",
-  context: "presetContext"
+  context: "presetContext",
+  list: "presetList"
 };
 
 /** 回傳 presets 的本地化名稱（型別安全的 key lookup）。 */

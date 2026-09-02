@@ -35,8 +35,9 @@ Folder Spaces lets you detach any folder into its own scoped explorer, so you se
 - **Tree & Flat view modes**: toggle between a nested tree and a clean flat list per folder.
 - **Depth control**: expand to 1 level, 2 levels, or all levels — per folder.
 - **Content control**: show folders, files, or all items — per folder.
-- **View presets**: six named presets that combine view, depth, and content — `Explorer` (standard tree), `Navigate` (folder-only tree), `Columns` (single-level folder list), `Context` (two-level folder tree), `Contents` (flat overview), `Files` (flat file list). Apply a preset per panel, or horizontally as a parent panel drives its cascade of children.
-- **Filter & sort**: filter by path substring, and sort by name, modified time, or created time (ascending / descending) — per folder.
+- **View presets**: seven named presets that combine view, depth, and content — `Explorer` (standard tree), `Navigate` (folder-only tree), `Columns` (single-level folder list), `Context` (two-level folder tree), `Contents` (flat overview), `Files` (flat file list), `List` (single-level flat file list). Apply a preset per panel, or horizontally as a parent panel drives its cascade of children.
+- **Filter & sort**: filter the current panel by a path substring, and sort by name, modified time, or created time (ascending / descending). Sort order is remembered per folder; the filter is an in-panel, immediate condition.
+- **Smart folder navigation**: non-terminal folders keep native expand/collapse behavior. A terminal folder (for example, one at the selected depth limit or with no visible children) drills down in place; the header status icon becomes an Up-to-parent button.
 - **Workspace restore**: all Folder Space views restore automatically when Obsidian restarts.
 
 ### One-row header & root operations
@@ -46,21 +47,24 @@ The Folder Space header is a compact single row that keeps the native file actio
 - **Click the root title** to open a searchable picker over all vault folders — navigate up to the parent or down into any subfolder.
 - **Right-click the root title** for the full native folder context menu (`file-menu`) — including new note / new folder and other file actions.
 - **Select subfolder / Up to parent** actions to move the root scope.
-- **View settings** menu: toggle Tree/Flat, depth & content, presets, filter, sort, set a custom folder icon, reveal/auto-reveal the current file, collapse/expand all.
-- **Safe rename modal** when renaming the root folder.
+- **Header actions**: use dedicated controls for path filtering and sorting; the view-settings menu changes Tree/Flat, depth/content, and presets. Additional actions reveal/auto-reveal the current file, collapse/expand all, set a custom folder icon, or open Folder Spaces settings.
+- **Inline root-folder rename** with Enter to commit or Escape to cancel.
 - **Per-folder settings** (view, depth, content, sort, icon) are remembered and migrated when a folder is renamed or moved.
 
 ### Cascading panel binding
-Drag folder contexts across panels by chaining Folder Space panels into a parent → child → grandchild cascade:
+Chain folder contexts across panels by linking Folder Space panels into a parent → child → grandchild cascade:
 
 - Right-click a folder in any Folder Space (or the native File Explorer) and open a new panel — the new panel **binds as a child** of the source panel.
-- A **"Sync focus with parent panel"** toggle (default on) makes the child's folder scope follow the parent's folder selection. Turn it off to keep the child's scope fixed.
+- A **"Sync focus with parent panel"** toggle makes the child's folder scope follow the parent's folder selection. Its default can be configured separately for same-window and new-window child panels; turn it off to keep the child's scope fixed.
+- **Predictable focus semantics**: when a child is following, clicking a folder name sends focus to the child while the parent's tree stays stable; clicking the chevron still expands/collapses the parent. Keyboard folder focus also cascades, and a 450 ms long-press on a folder name drills down in the parent panel.
 - The native File Explorer also acts as a parent panel, driving bound children from its own tree.
 - Nest to unlimited depth: a child can itself host child panels, carrying focus down the whole chain (with cycle protection). Bindings persist across reloads.
 - Adaptive parent mode: a parent panel can automatically switch to a folder-only navigation preset while children are attached, so the chain reads Navigator → Bridge → Terminal.
 
-### Panels are never replaced
-- Inside a popout window, sidebar panels (backlink, outline, outgoing links, search, ...) and Folder Space explorers are **never replaced** by an opened note — the note opens on the previously active note tab or as a new tab in that group, while unpinned note tabs keep the normal open-in-current-tab behavior.
+### Protected panels & smart file routing
+- Folder Space leaves are protected from generic note reuse, so sidebar and popout panels are **never replaced** by an opened note. Notes opened from a Folder Space are routed to a usable content/editor pane; pinned note targets remain protected and receive a new tab when appropriate.
+- **Smart content-area routing**: in a Folder Space opened in the editor area, a normal file click targets the most recently active adjacent content panel in the same window, excluding tool views and popout side columns. If the target is pinned, a new tab is created in that group. When no other content panel exists, the **Always open in other panel** setting controls whether Folder Spaces split a new panel or create a tab in the current group.
+- Ctrl/Cmd-click and middle-click retain explicit new-tab behavior. In popout windows, native sidebar panels (backlinks, outline, outgoing links, search, and more) remain draggable between splits and tab groups.
 
 ### Compatibility & ecosystem
 - **Native File Explorer core**: Folder Space reuses Obsidian's native File Explorer tree, so drag & drop, keyboard navigation, right-click menus, and DOM extensions keep working.
@@ -83,6 +87,7 @@ Think of each Folder Space as a **focus room** for one project, topic, or workfl
 - **Writing & content** (`Writing/`): open the writing folder in its own space — use `Contents`/`Files` presets or Flat view to see all drafts as a clean list.
 - **Research & literature** (`Research/`): isolate a literature or topic folder so reading notes and sources stay in one focused context.
 - **Flat-structure scanning**: for deeply nested folders, switch to Flat view to see every subfolder (labeled with its relative path) and its files in one glance.
+- **Side-by-side reading**: place a Folder Space in the editor area and enable **Always open in other panel** so normal file clicks open in the adjacent content pane.
 - **Multi-panel cascade**: chain a `Navigate` (or `Columns`) folder-only navigator → a `Context` bridge → a `Contents`/`Files` terminal to drill through a large structure step by step while keeping each level focused.
 - **Distraction-free deep work**: open a Folder Space in a new window on a second monitor to keep a task fully separated from the main workspace.
 - **Single-vault, multi-project workspace**: combine Folder Spaces with Window Spaces — each project gets a folder-scoped explorer and a saved window arrangement, switched like project "rooms".
@@ -91,14 +96,13 @@ Think of each Folder Space as a **focus room** for one project, topic, or workfl
 
 - **General**
   - **Show ribbon icon**: show a Folder Space icon in the ribbon to open the folder picker.
-  - **Default open location**: where new Folder Spaces appear, set separately for the **main window** and **popout windows** (left sidebar, right sidebar, editor area, or new window).
-- **Display options**
-  - **Default folder view**: Tree or Flat for folders without their own saved mode.
-  - **Default depth**: 1 level, 2 levels, or all levels.
-  - **Default content**: folders, files, or all.
-  - **View presets**: default preset for new panels, default preset for child panels, auto-apply child preset, adaptive parent mode, and the parent navigation preset.
-- **Follow parent panel**: whether new child panels sync their folder focus with the parent by default, set separately for same-window and new-window panels.
-- **Folder Notes**: disable folder-note opening in folder-only views.
+  - **Always open in other panel**: when a Folder Space is in the editor/content area, open normal file clicks in an adjacent content panel; if none exists, split a new panel. Turn it off to create a tab in the current group instead.
+- **Default open location**: where new Folder Spaces appear, set separately for the **main window** and **popout windows** (left sidebar, right sidebar, editor area, or new window).
+- **View presets**
+  - **Default view preset**: the preset applied to new standalone panels.
+  - **Disable folder notes in folder-only view**: keep folder-only navigation focused on hierarchy; Ctrl/Cmd-click can still open a folder note.
+- **Cascade & linking**: choose the default child-panel preset, auto-apply it, enable adaptive parent mode, choose the parent navigation preset, and set the default follow behavior separately for same-window and new-window child panels.
+- **Preset configurations reference**: the settings page includes a table describing the seven built-in presets and their Tree/Flat, depth, and content dimensions.
 
 ## Compatibility
 
