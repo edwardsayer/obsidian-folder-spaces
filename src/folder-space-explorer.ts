@@ -13,6 +13,7 @@ import {
   View,
   ViewStateResult,
   WorkspaceLeaf,
+  WorkspaceParent,
   type PaneType,
   debounce,
   setIcon,
@@ -849,7 +850,9 @@ function patchExplorerView(
     }
 
     if (!view._sortQueued) {
-      view.containerEl.onNodeInserted(() => view.requestSort(), true);
+      view.containerEl.onNodeInserted(() => {
+        void view.requestSort();
+      }, true);
       view._sortQueued = true;
     }
   };
@@ -2912,7 +2915,7 @@ export function registerTreeNavigationOverride(view: PatchedExplorerView): void 
 
   const originalChangeFocusedItem = tree.changeFocusedItem.bind(tree);
 
-  tree.changeFocusedItem = function (direction: "forwards" | "backwards") {
+  tree.changeFocusedItem = (direction: "forwards" | "backwards") => {
     const visibleItems = getVisibleTreeItems(view);
     if (visibleItems.length === 0) {
       originalChangeFocusedItem(direction);
@@ -3100,7 +3103,7 @@ function resolveFileOpenTargetLeaf(view: PatchedExplorerView): WorkspaceLeaf | n
 
       if (
         bestLeaf.parent &&
-        typeof (workspace as unknown as { createLeafInParent?: Function }).createLeafInParent === "function"
+        typeof (workspace as unknown as { createLeafInParent?: (parent: WorkspaceParent, leaf: WorkspaceLeaf) => WorkspaceLeaf }).createLeafInParent === "function"
       ) {
         try {
           const created = (workspace as unknown as {
@@ -3136,7 +3139,7 @@ function resolveFileOpenTargetLeaf(view: PatchedExplorerView): WorkspaceLeaf | n
   // 4. 在當前 TabGroup 或當前 Root 中新建分頁
   if (
     currentLeaf.parent &&
-    typeof (workspace as unknown as { createLeafInParent?: Function }).createLeafInParent === "function"
+    typeof (workspace as unknown as { createLeafInParent?: (parent: WorkspaceParent, leaf: WorkspaceLeaf) => WorkspaceLeaf }).createLeafInParent === "function"
   ) {
     try {
       const created = (workspace as unknown as {
@@ -4113,7 +4116,7 @@ function applyFlatItemTitles(view: PatchedExplorerView): void {
         item._originalGetTitle = item.getTitle;
       }
       const targetTitle = getRelativePathToFolderSpace(item.file.path, view.folderPath);
-      item.getTitle = function (): string {
+      item.getTitle = function (this: InternalTreeItem): string {
         if (
           (view.viewMode === "flat" && this.file instanceof TFolder) ||
           (view.contentMode === "files" && this.file instanceof TFile)
