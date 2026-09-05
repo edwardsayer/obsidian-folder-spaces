@@ -1331,9 +1331,8 @@ function resetFileItemsDisplay(view: PatchedExplorerView): void {
     for (const key in view.fileItems) {
       if (Object.prototype.hasOwnProperty.call(view.fileItems, key)) {
         const item = view.fileItems[key];
-        if (item?.el && item.el.style.display === "none") {
-          item.el.style.display = "";
-        }
+        // 清除原生搜尋機制殘留的 inline display:none（僅還原為空值，非設定新樣式）。
+        item?.el?.setCssStyles({ display: "" });
       }
     }
   }

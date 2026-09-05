@@ -245,8 +245,9 @@ export default class FolderSpacesPlugin extends Plugin {
     disposePanelActivityTracker(this.app.workspace);
     this.panelBindingManager.clear();
     this.windowActiveFileTracker.restoreAll();
-    this.app.workspace.detachLeavesOfType(FOLDER_SPACES_VIEW_TYPE);
-    this.app.workspace.detachLeavesOfType(LEGACY_FLAT_FILE_EXPLORER_VIEW_TYPE);
+    // 不在 onunload detach leaves：detach 會將 leaf 重置回預設位置，
+    // 使用者重新載入後無法保留自訂佈局；views 由 registerView 的 unload
+    // 流程還原內容，leaves 本身保留原位。
     releasePopoutLayoutEngine("folder-spaces");
   }
 
