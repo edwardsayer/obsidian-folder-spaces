@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+// shared 引擎以 window 作為全域命名空間（Electron 中 window === globalThis）；
+// Node 測試環境無 window，預先建立別名供 shared state 掛載。
+const globalWithWindow = globalThis as unknown as { window?: unknown };
+if (typeof globalWithWindow.window === "undefined") {
+  globalWithWindow.window = globalThis;
+}
+
 import type { App, WorkspaceLeaf } from "obsidian";
 
 import {
@@ -389,6 +396,8 @@ test("workspace interceptor invokes popout document.hasFocus with its document r
     window?: Window;
     activeWindow?: Window;
   };
+  // shared 引擎以 window 為命名空間；Node 測試環境以 globalThis 別名承載。
+  (globalThis as unknown as { window?: unknown }).window = globalObject.window ?? (globalThis as unknown as Window);
   const previousWindow = globalObject.window;
   const previousActiveWindow = globalObject.activeWindow;
   const mainDocument = {
@@ -446,6 +455,7 @@ test("workspace interceptor invokes popout document.hasFocus with its document r
     releaseWorkspaceInterceptor(participantId);
     if (previousWindow === undefined) {
       delete globalObject.window;
+      delete (globalThis as unknown as { window?: unknown }).window;
     } else {
       globalObject.window = previousWindow;
     }
@@ -548,6 +558,7 @@ test("workspace getLeaf routes popout sidebar opens to the center pane (folder-s
     releaseWorkspaceInterceptor("test-fs-getleaf-route");
     if (previousWindow === undefined) {
       delete globalObject.window;
+      delete (globalThis as unknown as { window?: unknown }).window;
     } else {
       globalObject.window = previousWindow;
     }

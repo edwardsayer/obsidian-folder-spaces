@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+// shared 引擎以 window 作為全域命名空間；Node 測試環境預先建立別名。
+const globalWithWindow = globalThis as unknown as { window?: unknown };
+if (typeof globalWithWindow.window === "undefined") {
+  globalWithWindow.window = globalThis;
+}
+
 import {
   WindowActiveFileTracker,
   type PatchableFileExplorerView

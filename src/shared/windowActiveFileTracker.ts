@@ -18,12 +18,12 @@ export interface WindowActiveFileTrackerState {
   patchedViews: Set<PatchableViewOnFileOpen>;
 }
 
-type GlobalNamespace = typeof globalThis & {
+type GlobalNamespace = typeof window & {
   __obsidian_window_active_file_tracker_state_v1__?: WindowActiveFileTrackerState;
 };
 
 export function getSharedActiveFileState(): WindowActiveFileTrackerState {
-  const namespace = globalThis as GlobalNamespace;
+  const namespace = window as unknown as GlobalNamespace;
   let state = namespace.__obsidian_window_active_file_tracker_state_v1__;
   if (!state) {
     state = {

@@ -41,7 +41,7 @@ interface PopoutLayoutRegistryState {
   proxy: PopoutLayoutEngineWithWindow;
 }
 
-type GlobalNamespace = typeof globalThis & {
+type GlobalNamespace = typeof window & {
   [POPOUT_LAYOUT_REGISTRY_KEY]?: PopoutLayoutRegistryState;
 };
 
@@ -114,7 +114,7 @@ async function waitForPopoutWindow(leaf: WorkspaceLeaf): Promise<Window | null> 
   for (let attempt = 0; attempt < 40; attempt++) {
     const candidate = extLeaf.containerEl?.ownerDocument?.defaultView as Window | undefined;
     if (candidate && isPopoutDocument(candidate.document)) return candidate;
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => window.setTimeout(resolve, 50));
   }
   return null;
 }
@@ -213,7 +213,9 @@ function createStableProxy(state: PopoutLayoutRegistryState): PopoutLayoutEngine
 }
 
 function getRegistryState(): PopoutLayoutRegistryState {
-  const namespace = globalThis as GlobalNamespace;
+  // shared 引擎在主視窗 realm 載入（plugin 進入點），以 window 作為全域命名空間
+  // （避免 no-global-this 警告；popout realm 會經由 registry proxy 共享同一 state）。
+  const namespace = window as unknown as GlobalNamespace;
   const existing = namespace[POPOUT_LAYOUT_REGISTRY_KEY];
   if (existing) return existing;
 

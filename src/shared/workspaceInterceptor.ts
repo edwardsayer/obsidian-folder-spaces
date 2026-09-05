@@ -83,12 +83,12 @@ interface InterceptorState {
   eventRefs?: unknown[];
 }
 
-type GlobalNamespace = typeof globalThis & {
+type GlobalNamespace = typeof window & {
   __obsidian_workspace_interceptor_state_v1__?: InterceptorState;
 };
 
 function getState(app: App): InterceptorState {
-  const namespace = globalThis as GlobalNamespace;
+  const namespace = window as unknown as GlobalNamespace;
   const existing = namespace.__obsidian_workspace_interceptor_state_v1__;
   if (existing) {
     if (existing.participants.size === 0 && !existing.installed) {
@@ -465,7 +465,7 @@ export function acquireWorkspaceInterceptor(
 
 /** Release one plugin policy; restore the original APIs after the last release. */
 export function releaseWorkspaceInterceptor(id: string): void {
-  const namespace = globalThis as GlobalNamespace;
+  const namespace = window as unknown as GlobalNamespace;
   const state = namespace.__obsidian_workspace_interceptor_state_v1__;
   if (!state) return;
   state.participants.delete(id);
