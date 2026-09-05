@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   findToolbarButton,
   getFolderSpaceTitle,
+  getRelativePathToFolderSpace,
   isMirrorAttribute,
   isPathInsideFolder,
   normalizeState
@@ -131,5 +132,32 @@ test("getFolderSpaceTitle returns vault name for root and last segment for subfo
   assert.equal(getFolderSpaceTitle(mockApp, undefined), "MyVault");
   assert.equal(getFolderSpaceTitle(mockApp, "Projects"), "Projects");
   assert.equal(getFolderSpaceTitle(mockApp, "Projects/Active"), "Active");
+});
+
+test("normalizeState preserves custom state while preparing for folder spaces display", () => {
+  const stateWithSearch = {
+    folderPath: "Projects",
+    searchQuery: "compat",
+    showSearch: true
+  };
+  const normalized = normalizeState(stateWithSearch);
+  assert.equal(normalized.folderPath, "Projects");
+  // ensure normalizeState correctly accepts and retains standard object properties
+  assert.equal(normalized.searchQuery, "compat");
+});
+
+test("getRelativePathToFolderSpace calculates relative paths correctly for root and subfolders", () => {
+  // Root scopes ("" or "/")
+  assert.equal(getRelativePathToFolderSpace("docs/advanced", ""), "docs/advanced");
+  assert.equal(getRelativePathToFolderSpace("docs/advanced", "/"), "docs/advanced");
+  assert.equal(getRelativePathToFolderSpace("quartz/cli/templates", ""), "quartz/cli/templates");
+
+  // Scoped folder path
+  assert.equal(getRelativePathToFolderSpace("docs/advanced", "docs"), "advanced");
+  assert.equal(getRelativePathToFolderSpace("quartz/cli/templates", "quartz"), "cli/templates");
+  assert.equal(getRelativePathToFolderSpace("quartz/cli/templates", "quartz/cli"), "templates");
+
+  // Identity
+  assert.equal(getRelativePathToFolderSpace("docs", "docs"), "docs");
 });
 

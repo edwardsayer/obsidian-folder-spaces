@@ -249,7 +249,7 @@ export function isPathInsideFolder(path: string | null | undefined, folderPath: 
   if (!path) {
     return false;
   }
-  if (folderPath === "") {
+  if (folderPath === "" || folderPath === "/") {
     // The vault root contains every path.
     return true;
   }
@@ -257,6 +257,20 @@ export function isPathInsideFolder(path: string | null | undefined, folderPath: 
     return false;
   }
   return path === folderPath || path.startsWith(`${folderPath}/`);
+}
+
+export function getRelativePathToFolderSpace(filePath: string, folderPath: string | null | undefined): string {
+  if (!folderPath || folderPath === "" || folderPath === "/") {
+    return filePath;
+  }
+  const prefix = folderPath.endsWith("/") ? folderPath : `${folderPath}/`;
+  if (filePath === folderPath) {
+    return filePath.split("/").pop() || filePath;
+  }
+  if (filePath.startsWith(prefix)) {
+    return filePath.slice(prefix.length);
+  }
+  return filePath;
 }
 
 export function isHTMLElement(value: HTMLElement | undefined): value is HTMLElement {

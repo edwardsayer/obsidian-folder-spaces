@@ -371,6 +371,75 @@ test("isTerminalFolderItem identifies terminal folders by depth limit and item a
   const folderWithOnlyFiles: any = { path: "Root/FolderWithOnlyFiles", children: [{ path: "Root/FolderWithOnlyFiles/note.md" }] };
   // in folders contentMode, getSortedFolderItems returns 0 items for folders that only contain files
   assert.equal(testIsTerminal(view, folderWithOnlyFiles), true);
+
+  // Case 6: contentMode all with only hidden folder note is terminal
+  view.contentMode = "all";
+  const folderWithFolderNoteOnly: any = { path: "Root/FolderWithNote", children: [{ path: "Root/FolderWithNote/FolderWithNote.md" }] };
+  const folderNotesSettings = { hideFolderNote: true };
+  const testIsTerminalWithNotes = (v: any, f: any, noteInfo: any) => {
+    if (f === rootFolder) return false;
+    const items = v.getSortedFolderItems(f);
+    if (!items || items.length === 0) return true;
+    if (noteInfo?.shouldHide && noteInfo.notePath) {
+      const visible = items.filter((i: any) => i.file.path !== noteInfo.notePath);
+      if (visible.length === 0) return true;
+    }
+    return false;
+  };
+  view.getSortedFolderItems = (f: any) => {
+    if (f === folderWithFolderNoteOnly) return [{ file: { path: "Root/FolderWithNote/FolderWithNote.md" } }];
+    return [];
+  };
+  assert.equal(
+    testIsTerminalWithNotes(view, folderWithFolderNoteOnly, {
+      notePath: "Root/FolderWithNote/FolderWithNote.md",
+      hasNote: true,
+      shouldHide: true
+    }),
+    true
+  );
+
+  // Case 7: contentMode all with hidden folder note AND other files is NOT terminal
+  const folderWithNoteAndDoc: any = {
+    path: "Root/FolderWithNoteAndDoc",
+    children: [{ path: "Root/FolderWithNoteAndDoc/Note.md" }, { path: "Root/FolderWithNoteAndDoc/other.md" }]
+  };
+  view.getSortedFolderItems = (f: any) => {
+    if (f === folderWithNoteAndDoc) {
+      return [
+        { file: { path: "Root/FolderWithNoteAndDoc/Note.md" } },
+        { file: { path: "Root/FolderWithNoteAndDoc/other.md" } }
+      ];
+    }
+    return [];
+  };
+  // Case 8: folder with only unsupported files (e.g. .yaml with showUnsupportedFiles: false) is terminal
+  const folderWithYamlOnly: any = {
+    path: "Root/FolderWithYamlOnly",
+    children: [{ path: "Root/FolderWithYamlOnly/config.yaml" }]
+  };
+  const testIsTerminalWithUnsupported = (v: any, f: any, showUnsupported: boolean, registeredExts: string[]) => {
+    if (f === rootFolder) return false;
+    const items = v.getSortedFolderItems(f);
+    if (!items || items.length === 0) return true;
+    const supported = items.filter((item: any) => {
+      if (!item?.file || item.file.children) return true;
+      if (showUnsupported) return true;
+      const ext = item.file.path.split(".").pop()?.toLowerCase() ?? "";
+      if (!ext) return false;
+      return registeredExts.includes(ext) || ext === "md" || ext === "canvas";
+    });
+    return supported.length === 0;
+  };
+  view.getSortedFolderItems = (f: any) => {
+    if (f === folderWithYamlOnly) {
+      return [{ file: { path: "Root/FolderWithYamlOnly/config.yaml" } }];
+    }
+    return [];
+  };
+  assert.equal(testIsTerminalWithUnsupported(view, folderWithYamlOnly, false, []), true);
+  assert.equal(testIsTerminalWithUnsupported(view, folderWithYamlOnly, true, []), false);
+  assert.equal(testIsTerminalWithUnsupported(view, folderWithYamlOnly, false, ["yaml"]), false);
 });
 
 test("drillDownToFolder applies defaultChildPreset and drillDownGoBack restores previous state", () => {

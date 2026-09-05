@@ -16,6 +16,7 @@ import {
   type FolderSpacesAPI
 } from "./api.js";
 import { FileExplorerCompatibilityBridge } from "./file-explorer-compatibility.js";
+import { NativeTerminalManager } from "./native-terminal-manager.js";
 import { t } from "./i18n.js";
 import { readFolderNotesSettings } from "./folder-note-compat.js";
 import {
@@ -96,6 +97,7 @@ export default class FolderSpacesPlugin extends Plugin {
   private readonly windowActiveFileTracker = new WindowActiveFileTracker(this.app);
   private activeContextSourceLeaf: WorkspaceLeaf | null = null;
   private popoutLayout!: PopoutLayoutEngineWithWindow;
+  private nativeTerminalManager?: NativeTerminalManager;
 
   override async onload(): Promise<void> {
     await this.loadSettings();
@@ -216,6 +218,8 @@ export default class FolderSpacesPlugin extends Plugin {
       })
     );
     new FileExplorerCompatibilityBridge(this).start();
+    this.nativeTerminalManager = new NativeTerminalManager(this);
+    this.nativeTerminalManager.start();
   }
 
   private updateOpenLeavesFolderPathOnRename(oldPath: string, newPath: string): void {
@@ -236,6 +240,7 @@ export default class FolderSpacesPlugin extends Plugin {
   }
 
   override onunload(): void {
+    this.nativeTerminalManager?.destroy();
     releaseWorkspaceInterceptor("folder-spaces");
     disposePanelActivityTracker(this.app.workspace);
     this.panelBindingManager.clear();
@@ -803,6 +808,8 @@ export default class FolderSpacesPlugin extends Plugin {
         this.nativeExplorerBindings.delete(leaf);
       }
     }
+
+    this.nativeTerminalManager?.updateAll();
   }
 
   private ensureNativeExplorerParent(leaf: WorkspaceLeaf): void {

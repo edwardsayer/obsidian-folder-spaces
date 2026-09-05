@@ -74,6 +74,83 @@ test("無 plugin：無同名檔時無 folder note", () => {
   assert.equal(info.notePath, null);
 });
 
+test("無 plugin：多點副檔名/測試檔案（如 frames.test.ts）不應被誤判為 folder note", () => {
+  const folder = makeFolder("frames", "quartz/components/frames", [
+    makeFile("frames.test.ts", "quartz/components/frames/frames.test.ts"),
+    makeFile("DefaultFrame.tsx", "quartz/components/frames/DefaultFrame.tsx"),
+    makeFile("registry.ts", "quartz/components/frames/registry.ts"),
+    makeFile("index.ts", "quartz/components/frames/index.ts")
+  ]);
+
+  const info = resolveFolderNote(folder as any, DEFAULT_OPTIONS);
+  assert.equal(info.hasNote, false);
+  assert.equal(info.notePath, null);
+});
+
+test("無 plugin：未被 Obsidian 支援且未開啟 showUnsupportedFiles 的檔案（如 loader.ts）不應被誤判為 folder note", () => {
+  const folder = makeFolder("loader", "quartz/plugins/loader", [
+    makeFile("loader.ts", "quartz/plugins/loader/loader.ts")
+  ]);
+
+  // 1. 預設環境（未開啟 showUnsupportedFiles，未註冊 .ts）
+  const infoDefault = resolveFolderNote(folder as any, DEFAULT_OPTIONS);
+  assert.equal(infoDefault.hasNote, false);
+  assert.equal(infoDefault.notePath, null);
+
+  // 2. 模擬 Obsidian vault 開啟了 showUnsupportedFiles
+  const appWithShowUnsupported = {
+    vault: { getConfig: (key: string) => (key === "showUnsupportedFiles" ? true : false) }
+  };
+  const infoShowUnsupported = resolveFolderNote(folder as any, {
+    ...DEFAULT_OPTIONS,
+    app: appWithShowUnsupported
+  });
+  assert.equal(infoShowUnsupported.hasNote, true);
+  assert.equal(infoShowUnsupported.notePath, "quartz/plugins/loader/loader.ts");
+
+  // 3. 模擬 Obsidian viewRegistry 註冊了 .ts
+  const appWithViewRegistry = {
+    viewRegistry: { isExtensionRegistered: (ext: string) => ext === "ts" }
+  };
+  const infoRegistered = resolveFolderNote(folder as any, {
+    ...DEFAULT_OPTIONS,
+    app: appWithViewRegistry
+  });
+  assert.equal(infoRegistered.hasNote, true);
+  assert.equal(infoRegistered.notePath, "quartz/plugins/loader/loader.ts");
+});
+
+test("有 plugin：嚴格 respect Folder Note 設定中的副檔名與型態", () => {
+  const folder = makeFolder("loader", "quartz/plugins/loader", [
+    makeFile("loader.ts", "quartz/plugins/loader/loader.ts"),
+    makeFile("loader.md", "quartz/plugins/loader/loader.md")
+  ]);
+
+  // 1. Folder Note 設定僅支援 .md（預設）
+  const settingsMdOnly: FolderNotesPluginSettings = {
+    folderNoteType: ".md",
+    supportedFileTypes: ["md"],
+    folderNoteName: "{{folder_name}}"
+  };
+  const infoMd = resolveFolderNote(folder as any, {
+    folderNotesSettings: settingsMdOnly,
+    hasFolderNoteClass: false
+  });
+  assert.equal(infoMd.hasNote, true);
+  assert.equal(infoMd.notePath, "quartz/plugins/loader/loader.md");
+
+  // 2. 目錄下只有 loader.ts 時，若外掛未將 ts 列為支援型態，即使有 loader.ts 也必須視為無 note
+  const folderOnlyTs = makeFolder("loader", "quartz/plugins/loader", [
+    makeFile("loader.ts", "quartz/plugins/loader/loader.ts")
+  ]);
+  const infoTsOnly = resolveFolderNote(folderOnlyTs as any, {
+    folderNotesSettings: settingsMdOnly,
+    hasFolderNoteClass: false
+  });
+  assert.equal(infoTsOnly.hasNote, false);
+  assert.equal(infoTsOnly.notePath, null);
+});
+
 test("無 plugin：root 資料夾的同名檔（不應為 folder note）", () => {
   // root folder 的 name 是空字串或 vault 名；同名檔幾乎不可能，但規則應安全
   const folder = makeFolder("", "", [makeFile("README.md", "README.md")]);

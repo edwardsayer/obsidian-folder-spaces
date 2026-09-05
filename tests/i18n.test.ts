@@ -22,6 +22,15 @@ test("i18n language resolution falls back correctly and distinguishes zh-TW / zh
   assert.equal(t("actionOpenFolderNote", "en"), "Open folder note");
   assert.equal(t("actionOpenFolderNote", "zh-TW"), "開啟資料夾筆記");
   assert.equal(t("actionOpenFolderNote", "zh-CN"), "打开文件夹笔记");
+  assert.equal(t("actionFolderSpaceMenuHint", "en"), "Right-click to open actions menu");
+  assert.equal(t("actionFolderSpaceMenuHint", "zh-TW"), "按右鍵開啟操作選單");
+  assert.equal(t("actionFolderSpaceMenuHint", "zh-CN"), "按右键打开操作菜单");
+  assert.equal(t("actionToggleParentLink", "en"), "Enable/disable link");
+  assert.equal(t("actionToggleParentLink", "zh-TW"), "啟用/停用連結");
+  assert.equal(t("actionToggleParentLink", "zh-CN"), "启用/停用链接");
+  assert.equal(t("actionRemoveParentLink", "en"), "Remove parent link (cannot be undone)");
+  assert.equal(t("actionRemoveParentLink", "zh-TW"), "移除父連結 (無法復原)");
+  assert.equal(t("actionRemoveParentLink", "zh-CN"), "移除父链接 (无法复原)");
   assert.equal(t("settingsCascadeSection", "en"), "Cascade & linking");
   assert.equal(t("settingsCascadeSection", "zh-TW"), "雙面板接龍與連動");
   assert.equal(t("settingsCascadeSection", "zh-CN"), "双面板接龙与连动");

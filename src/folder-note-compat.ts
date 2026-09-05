@@ -3,7 +3,7 @@ import type { TFolder } from "obsidian";
 /**
  * Folder Note 相容層：解析「哪個檔案是某資料夾的 Folder Note」。
  *
- * 設計原則（見 doc/folder-note-compat-design.md）：
+ * 設計原則（見 dev/specs/folder-note-compat-design.md）：
  * - 以 folder-notes plugin 自己的 settings 為準，不自行猜測。
  * - plugin 未安裝時以放寬慣例偵測（`資料夾名.*`），且傾向顯示而非隱藏（fail-open）。
  * - 偵測結果用於兩個用途：是否隱藏檔案（follow `hideFolderNote`）與是否顯示 icon。
@@ -47,9 +47,39 @@ export interface ResolveFolderNoteOptions {
   folderNotesSettings: FolderNotesPluginSettings | null;
   /** 資料夾 title 是否帶 has-folder-note class（輔助信號，僅在解析失敗時使用）。 */
   hasFolderNoteClass: boolean;
+  /** Obsidian App 實例（可選，用於判斷 vault 的 showUnsupportedFiles 與 viewRegistry 是否支援該檔案類型）。 */
+  app?: any;
 }
 
 const FOLDER_NAME_TEMPLATE = "{{folder_name}}";
+
+/**
+ * 判定檔案類型在當前 Obsidian 環境中是否可顯示／開啟：
+ * 1. 若 vault 設定 showUnsupportedFiles 為 true，表示使用者允許顯示所有未支援檔案。
+ * 2. 否則，副檔名必須已被 Obsidian 視圖註冊（app.viewRegistry.isExtensionRegistered(ext)）。
+ * 3. 若無 app 或 viewRegistry 實例（如純 Node 單元測試），預設支援 Obsidian 核心筆記類型：.md 與 .canvas。
+ */
+export function isNoteFileTypeSupported(extWithoutDotOrWithDot: string, app?: any): boolean {
+  const ext = extWithoutDotOrWithDot.startsWith(".")
+    ? extWithoutDotOrWithDot.slice(1).toLowerCase()
+    : extWithoutDotOrWithDot.toLowerCase();
+
+  if (!ext) {
+    return false;
+  }
+
+  const showUnsupported = app?.vault?.getConfig?.("showUnsupportedFiles");
+  if (showUnsupported === true) {
+    return true;
+  }
+
+  const viewRegistry = app?.viewRegistry;
+  if (viewRegistry && typeof viewRegistry.isExtensionRegistered === "function") {
+    return viewRegistry.isExtensionRegistered(ext);
+  }
+
+  return ext === "md" || ext === "canvas";
+}
 
 /** 依副檔名排序：.md 優先，其餘字母序。 */
 function compareNoteExtensions(left: string, right: string): number {
@@ -62,27 +92,35 @@ function compareNoteExtensions(left: string, right: string): number {
 }
 
 /**
- * 無 plugin 慣例：`資料夾名.*`（任何副檔名）。
+ * 無 plugin 慣例：`資料夾名.*`（限制為 Obsidian 可顯示／開啟之筆記檔案類型）。
  * 多檔符合時依副檔名優先序取第一個（.md 優先，其餘字母序）。
  * 其餘符合檔一律視為一般檔案（正常顯示）。
  */
-function resolveByConvention(folder: TFolder): string | null {
-  const candidates: string[] = [];
+function resolveByConvention(folder: TFolder, app?: any): string | null {
+  const candidates: Array<{ path: string; ext: string }> = [];
   for (const child of folder.children) {
-    if (!child.name.startsWith(`${folder.name}.`)) {
+    if ("children" in child) {
       continue;
     }
     const dotIndex = child.name.lastIndexOf(".");
-    if (dotIndex > 0) {
-      candidates.push(child.name.slice(dotIndex));
+    if (dotIndex <= 0) {
+      continue;
     }
+    const baseName = child.name.slice(0, dotIndex);
+    if (baseName !== folder.name) {
+      continue;
+    }
+    const ext = child.name.slice(dotIndex);
+    if (!isNoteFileTypeSupported(ext, app)) {
+      continue;
+    }
+    candidates.push({ path: child.path, ext });
   }
   if (candidates.length === 0) {
     return null;
   }
-  candidates.sort(compareNoteExtensions);
-  const noteName = `${folder.name}${candidates[0]}`;
-  return folder.path === "/" ? noteName : `${folder.path}/${noteName}`;
+  candidates.sort((left, right) => compareNoteExtensions(left.ext, right.ext));
+  return candidates[0]?.path ?? null;
 }
 
 /**
@@ -169,7 +207,7 @@ function isExcluded(folder: TFolder, settings: FolderNotesPluginSettings): boole
  * - plugin 不存在：以 `資料夾名.*` 慣例解析（B 層）。
  */
 export function resolveFolderNote(folder: TFolder, options: ResolveFolderNoteOptions): FolderNoteInfo {
-  const { folderNotesSettings, hasFolderNoteClass } = options;
+  const { folderNotesSettings, hasFolderNoteClass, app } = options;
 
   if (folderNotesSettings) {
     if (isExcluded(folder, folderNotesSettings)) {
@@ -188,8 +226,8 @@ export function resolveFolderNote(folder: TFolder, options: ResolveFolderNoteOpt
     return { notePath: null, hasNote: false, shouldHide: false };
   }
 
-  // 無 plugin：慣例偵測，一律不隱藏（fail-open）。
-  const notePath = resolveByConvention(folder);
+  // 無 plugin：慣例偵測（限制為 Obsidian 可顯示／開啟之筆記類型），一律不隱藏（fail-open）。
+  const notePath = resolveByConvention(folder, app);
   return {
     notePath,
     hasNote: Boolean(notePath),

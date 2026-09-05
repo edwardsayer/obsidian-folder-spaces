@@ -22,6 +22,7 @@ import {
 import {
   findToolbarButton,
   getFolderSpaceTitle,
+  getRelativePathToFolderSpace,
   isPathInsideFolder,
   makeNavigable,
   normalizeState,
@@ -113,12 +114,16 @@ interface InternalTreeItem {
   el: HTMLElement;
   selfEl: HTMLElement;
   titleEl?: HTMLElement;
+  innerEl?: HTMLElement;
   file: TAbstractFile;
   parent?: InternalTreeItem | null;
   collapsed?: boolean;
   sort?: () => void;
   toggleCollapsed?: (collapsed?: boolean) => Promise<void> | void;
   setCollapsed?: (collapsed: boolean, animate?: boolean) => Promise<void> | void;
+  getTitle?: () => string;
+  updateTitle?: () => void;
+  _originalGetTitle?: () => string;
 }
 
 interface InternalTree {
@@ -170,6 +175,16 @@ interface InternalExplorerView extends View {
   getSortedFolderItems(folder: TFolder): InternalTreeItem[];
   handlePaste(event: ClipboardEvent): Promise<void>;
   load(): void;
+  // INTERNAL API: search / searchQuery / onSearchChanged / filterSearchResults - 原生 File Explorer 搜尋機制
+  search?: {
+    isShowing?: boolean;
+    setValue?(value: string): void;
+    setShowing?(showing: boolean): void;
+    getValue?(): string;
+  };
+  searchQuery?: unknown;
+  onSearchChanged?(query: string): void;
+  filterSearchResults?(): void;
   onCreateNewFolderClick(event: MouseEvent): void;
   onCreateNewNoteClick(event: MouseEvent): void;
   onDelete(file: TAbstractFile): void;
@@ -593,6 +608,26 @@ function patchExplorerView(
   }
   registerTreeNavigationOverride(view);
 
+  // INTERNAL API: search / searchQuery / filterSearchResults / onSearchChanged -
+  // 原生 File Explorer 擁有基於 DOM inline style（display:none）的搜尋機制。
+  // Folder Spaces 採用自訂的 item-level 過濾（applyDisplayFilterAndSort），
+  // 兩者會互相干擾。因此在 Folder Space 實例（instance own property）上將
+  // filterSearchResults 覆寫為 no-op，避免干擾自身以 applyDisplayFilterAndSort 進行的樹狀過濾。
+  // 注意：此處僅覆寫 Folder Space 實例自身（Own Property），不修改 prototype，原生 File Explorer 實例完全不受影響。
+  view.searchQuery = null;
+  if (view.search) {
+    view.search.setValue?.("");
+    view.search.setShowing?.(false);
+  }
+  view.onSearchChanged = () => {
+    view.searchQuery = null;
+  };
+  view.filterSearchResults = () => {
+    // no-op: Folder Spaces 實例使用自己的 applyDisplayFilterAndSort 進行樹狀過濾，
+    // 不允許原生底層的 DOM 隱藏機制干擾視圖。
+  };
+  resetFileItemsDisplay(view);
+
   view.panelId = generatePanelId();
   view.parentPanelId = null;
   view.followParent = true;
@@ -665,6 +700,8 @@ function patchExplorerView(
 
   view.getState = () => ({
     ...originalGetState(),
+    showSearch: view.filterRowEl?.hasClass("is-visible") ?? Boolean(view.filterQuery.trim()),
+    searchQuery: view.filterQuery,
     folderPath: view.folderPath,
     viewMode: view.viewMode,
     depthMode: view.depthMode,
@@ -681,6 +718,20 @@ function patchExplorerView(
   ) => {
     try {
       const nextState = normalizeState(state);
+      const rawSearchQuery =
+        typeof (state as Record<string, unknown>)?.searchQuery === "string"
+          ? ((state as Record<string, unknown>).searchQuery as string)
+          : typeof (state as Record<string, unknown>)?.filterQuery === "string"
+          ? ((state as Record<string, unknown>).filterQuery as string)
+          : "";
+      const rawShowSearch =
+        typeof (state as Record<string, unknown>)?.showSearch === "boolean"
+          ? ((state as Record<string, unknown>).showSearch as boolean)
+          : Boolean(rawSearchQuery.trim());
+
+      // 傳給原生 originalSetState 的參數中將 search 消毒，避免原生底層初始化時產生非預期干擾
+      nextState.searchQuery = "";
+      nextState.showSearch = false;
       view.folderPath = nextState.folderPath;
       view.viewMode = normalizeViewMode(nextState.viewMode ?? view.viewMode ?? view.getDefaultViewMode());
       view.depthMode = normalizeDepthMode(nextState.depthMode ?? view.depthMode ?? view.getDefaultDepthMode());
@@ -700,6 +751,14 @@ function patchExplorerView(
         typeof nextState.followParent === "boolean" ? nextState.followParent : true;
       view.icon = getFolderSpaceIcon(options, view.folderPath);
       await originalSetState(nextState, result);
+      // 原生 setState 後再次中和 search 並確保項目可見
+      view.searchQuery = null;
+      if (view.search) {
+        view.search.setValue?.("");
+        view.search.setShowing?.(false);
+      }
+      resetFileItemsDisplay(view);
+      applyFilterState(view, rawSearchQuery, rawShowSearch);
       // setState may be implemented by the native explorer and can overwrite
       // properties that were set while the view was being created.
       makeNavigable(view);
@@ -717,10 +776,20 @@ function patchExplorerView(
   };
 
   view.load = () => {
-    // 先套用 leaf view state 中的初始 folderPath，避免原生 load() 先以 root
-    // 內容渲染、setState 延遲到達時才重建造成抖動（見 applyInitialViewState）。
+    // 先套用 leaf view state 中的初始 folderPath 與過濾狀態
     applyInitialViewState(view);
     originalLoad();
+    view.searchQuery = null;
+    if (view.search) {
+      view.search.setValue?.("");
+      view.search.setShowing?.(false);
+    }
+    resetFileItemsDisplay(view);
+    applyFilterState(
+      view,
+      view.filterQuery,
+      (view as unknown as { _initialShowSearch?: boolean })._initialShowSearch ?? Boolean(view.filterQuery.trim())
+    );
     // The native explorer can reset this flag while it is loading.
     makeNavigable(view);
     if (view.leaf) {
@@ -893,6 +962,13 @@ function patchExplorerView(
     }
   };
 
+  const originalOnClose = (view as any).onClose?.bind(view);
+  (view as any).onClose = async () => {
+    restoreFlatItemParents(view);
+    restoreFlatItemTitles(view);
+    return originalOnClose ? originalOnClose() : Promise.resolve();
+  };
+
   return view;
 }
 
@@ -915,12 +991,13 @@ function initializeEmptyState(view: PatchedExplorerView): void {
   });
 
   // 最前方的狀態 icon：有父面板 binding → link icon（點擊切換 follow）；
-  // 無 binding → 顯示此 folder space 設定的 folder icon（純顯示）。
+  // 無 binding → 顯示此 folder space 設定的 folder icon。
+  // 右鍵點擊開啟操作選單。
   const statusIcon = folderPath.createDiv({
     cls: "clickable-icon folder-spaces-action-btn folder-spaces-status-icon",
     attr: {
-      "aria-label": t("actionFolderIcon"),
-      "data-tooltip": t("actionFolderIcon")
+      "aria-label": t("actionFolderSpaceMenuHint"),
+      "data-tooltip": t("actionFolderSpaceMenuHint")
     }
   });
   setIcon(statusIcon, view.getIcon());
@@ -1079,6 +1156,18 @@ function initializeEmptyState(view: PatchedExplorerView): void {
     void view.app.workspace.requestSaveLayout();
   });
 
+  // Status Icon Button -> 右鍵開啟操作選單
+  view.registerDomEvent(statusIcon, "contextmenu", (event: MouseEvent) => {
+    if (view.rootRenameInputEl) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+    showFolderSpaceIconMenu(view, statusIcon);
+  });
+
   view.registerDomEvent(statusIcon, "mouseenter", () => {
     if (view.parentPanelId && (!view.drillDownStack || view.drillDownStack.length === 0)) {
       highlightLinkedViews(view, "parent", true);
@@ -1131,6 +1220,86 @@ function openFolderIconPicker(view: PatchedExplorerView): void {
   }).open();
 }
 
+/** Folder Space 工具列左側圖示右鍵操作選單 */
+function showFolderSpaceIconMenu(view: PatchedExplorerView, anchorEl: HTMLElement): void {
+  const menu = new Menu();
+
+  // 1. 啟用/停用連結 (如果沒有父連結則 disable)
+  menu.addItem((item) => {
+    item.setTitle(t("actionToggleParentLink"));
+    item.setIcon("lucide-link");
+    if (!view.parentPanelId) {
+      item.setDisabled(true);
+    } else {
+      item.setChecked(view.followParent);
+      item.onClick(() => {
+        view.followParent = !view.followParent;
+        updateFollowParentButton(view);
+        view.onBindingChanged();
+        view.bindingManager?.getParentOf(view.panelId)?.onBindingChanged?.();
+        void view.app.workspace.requestSaveLayout();
+      });
+    }
+  });
+
+  // 2. 移除父連結 (不可逆操作)
+  menu.addItem((item) => {
+    item.setTitle(t("actionRemoveParentLink"));
+    item.setIcon("lucide-unlink");
+    if (!view.parentPanelId) {
+      item.setDisabled(true);
+    } else {
+      item.onClick(() => {
+        view.followParent = false;
+        const parentId = view.parentPanelId;
+        if (view.bindingManager) {
+          view.bindingManager.unbind(view.panelId);
+        }
+        view.parentPanelId = null;
+        updateFollowParentButton(view);
+        view.onBindingChanged();
+        if (parentId && view.bindingManager) {
+          view.bindingManager.getParentOf(parentId)?.onBindingChanged?.();
+        }
+        void view.app.workspace.requestSaveLayout();
+      });
+    }
+  });
+
+  menu.addSeparator();
+
+  // 3. 設定 folder space icon
+  menu.addItem((item) => {
+    item.setTitle(t("actionFolderIcon"));
+    item.setIcon("lucide-image");
+    if (view.folderPath === null) {
+      item.setDisabled(true);
+    } else {
+      item.onClick(() => openFolderIconPicker(view));
+    }
+  });
+
+  // 4. 開啟 Folder Spaces 設定
+  menu.addItem((item) => {
+    item.setTitle(t("actionOpenSettings"));
+    item.setIcon("lucide-settings");
+    item.onClick(() => openPluginSettings(view.app));
+  });
+
+  const menuDocument = anchorEl.ownerDocument;
+  const menuWindow = menuDocument.defaultView;
+  if (!menuWindow) {
+    return;
+  }
+  menuWindow.setTimeout(() => {
+    if (!anchorEl.isConnected) {
+      return;
+    }
+    const rect = anchorEl.getBoundingClientRect();
+    menu.showAtPosition({ x: rect.left, y: rect.bottom + 4 }, menuDocument);
+  }, 0);
+}
+
 /** 展開/收合 titlebar 下方的 filter input 列。 */
 function toggleFilterRow(view: PatchedExplorerView, force?: boolean): void {
   const row = view.filterRowEl;
@@ -1154,6 +1323,47 @@ function updateFilterButtonState(view: PatchedExplorerView): void {
     return;
   }
   button.toggleClass("is-active", row.hasClass("is-visible") || !!view.filterQuery.trim());
+}
+
+/** 確保 fileItems 內無殘留的 inline display:none。 */
+function resetFileItemsDisplay(view: PatchedExplorerView): void {
+  if (view.fileItems) {
+    for (const key in view.fileItems) {
+      if (Object.prototype.hasOwnProperty.call(view.fileItems, key)) {
+        const item = view.fileItems[key];
+        if (item?.el && item.el.style.display === "none") {
+          item.el.style.display = "";
+        }
+      }
+    }
+  }
+}
+
+/**
+ * 套用過濾文字與展開狀態（Per-view 獨立），同步 input、clear 按鈕與 active 樣式。
+ */
+function applyFilterState(view: PatchedExplorerView, query: string, showSearch?: boolean): void {
+  const normalizedQuery = typeof query === "string" ? query : "";
+  view.filterQuery = normalizedQuery;
+
+  if (view.filterInputEl) {
+    view.filterInputEl.value = normalizedQuery;
+  }
+
+  const filterClear = view.filterRowEl?.querySelector(".folder-spaces-filter-clear") as HTMLElement | null;
+  if (filterClear) {
+    filterClear.toggle(Boolean(normalizedQuery.trim()));
+  }
+
+  const shouldOpen = showSearch ?? Boolean(normalizedQuery.trim());
+  if (view.filterRowEl) {
+    view.filterRowEl.toggle(shouldOpen);
+    view.filterRowEl.toggleClass("is-visible", shouldOpen);
+  }
+
+  updateFilterButtonState(view);
+  resetFileItemsDisplay(view);
+  view.requestSort();
 }
 
 /** 依目前 per-folder 排序更新 sort 按鈕圖示。 */
@@ -1229,13 +1439,6 @@ function showSortOrderMenu(view: PatchedExplorerView, anchorEl: HTMLElement): vo
   menu.addItem((item) => {
     item.setTitle(t("actionExpandAll"));
     item.onClick(() => expandAllFoldersInView(view));
-  });
-
-  menu.addSeparator();
-
-  menu.addItem((item) => {
-    item.setTitle(t("actionFolderIcon"));
-    item.onClick(() => openFolderIconPicker(view));
   });
 
   const menuDocument = anchorEl.ownerDocument;
@@ -1502,6 +1705,17 @@ function applyInitialViewState(view: PatchedExplorerView): void {
     return;
   }
   const nextState = normalizeState(viewState.state);
+  const rawSearchQuery =
+    typeof (viewState.state as Record<string, unknown>)?.searchQuery === "string"
+      ? ((viewState.state as Record<string, unknown>).searchQuery as string)
+      : typeof (viewState.state as Record<string, unknown>)?.filterQuery === "string"
+      ? ((viewState.state as Record<string, unknown>).filterQuery as string)
+      : "";
+  const rawShowSearch =
+    typeof (viewState.state as Record<string, unknown>)?.showSearch === "boolean"
+      ? ((viewState.state as Record<string, unknown>).showSearch as boolean)
+      : Boolean(rawSearchQuery.trim());
+
   view.folderPath = nextState.folderPath;
   view.viewMode = normalizeViewMode(nextState.viewMode ?? view.getDefaultViewMode());
   view.depthMode = normalizeDepthMode(nextState.depthMode ?? view.getDefaultDepthMode());
@@ -1509,6 +1723,8 @@ function applyInitialViewState(view: PatchedExplorerView): void {
   if (view.contentMode === "files") {
     view.viewMode = "flat";
   }
+  view.filterQuery = rawSearchQuery;
+  (view as unknown as { _initialShowSearch?: boolean })._initialShowSearch = rawShowSearch;
 }
 
 function normalizeViewMode(mode: unknown): FolderSpaceViewMode {
@@ -1582,11 +1798,51 @@ export function isTerminalFolderItem(view: PatchedExplorerView, folder: TFolder)
 
   // 內容項目
   const items = view.getSortedFolderItems(folder);
-  return !items || items.length === 0;
+  if (!items || items.length === 0) {
+    return true;
+  }
+
+  // 檢查是否所有項目均為未支援的檔案（未開啟 showUnsupportedFiles 且未註冊副檔名）
+  const showUnsupported = (view.app?.vault as any)?.getConfig?.("showUnsupportedFiles") === true;
+  const viewRegistry = (view.app as any)?.viewRegistry;
+
+  const supportedItems = items.filter((item) => {
+    if (!item?.file || item.file instanceof TFolder) {
+      return true;
+    }
+    if (showUnsupported) {
+      return true;
+    }
+    const ext = item.file instanceof TFile ? item.file.extension.toLowerCase() : "";
+    if (!ext) return false;
+    if (viewRegistry && typeof viewRegistry.isExtensionRegistered === "function") {
+      return viewRegistry.isExtensionRegistered(ext);
+    }
+    return ext === "md" || ext === "canvas";
+  });
+
+  if (supportedItems.length === 0) {
+    return true;
+  }
+
+  // 檢查 Folder Note：若啟用了隱藏 Folder Note，且內部項目僅包含該 note，則無視覺內容，視為端點
+  const folderNotesSettings = view.getFolderNotesSettings?.();
+  const folderNoteInfo =
+    view.folderNoteInfoByFolder?.get(folder.path) ??
+    resolveFolderNote(folder, { folderNotesSettings, hasFolderNoteClass: false, app: view.app });
+
+  if (folderNoteInfo?.shouldHide && folderNoteInfo.notePath) {
+    const visibleItems = supportedItems.filter((item) => item?.file?.path !== folderNoteInfo.notePath);
+    if (visibleItems.length === 0) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 export function updateTerminalFolderIndicators(view: PatchedExplorerView): void {
-  if (view.viewMode === "flat" || view.contentMode === "files") {
+  if (view.contentMode === "files") {
     for (const item of Object.values(view.fileItems)) {
       item?.selfEl?.toggleClass("is-terminal-folder", false);
     }
@@ -1605,7 +1861,7 @@ export function updateTerminalFolderIndicators(view: PatchedExplorerView): void 
 }
 
 /**
- * Folder Note 相容層（見 doc/folder-note-compat-design.md）：
+ * Folder Note 相容層（見 dev/specs/folder-note-compat-design.md）：
  * 1. 為有 folder note 的資料夾掛載 note 圖示（名稱後方），點擊開啟 note。
  * 2. 當 folder-notes 的 hideFolderNote 啟用時，為 folder note 檔案補掛
  *    `.is-folder-note` class，讓 folder-notes 的 CSS（body.hide-folder-note
@@ -1626,7 +1882,8 @@ function updateFolderNoteIndicators(view: PatchedExplorerView): void {
     }
     const info = resolveFolderNote(item.file, {
       folderNotesSettings,
-      hasFolderNoteClass: item.selfEl.hasClass("has-folder-note") || item.selfEl.getAttribute("data-has-folder-note") === "true"
+      hasFolderNoteClass: item.selfEl.hasClass("has-folder-note") || item.selfEl.getAttribute("data-has-folder-note") === "true",
+      app: view.app
     });
     resolved.set(item.file.path, info);
 
@@ -1801,14 +2058,6 @@ function showViewSettingsDropdown(view: PatchedExplorerView, anchorEl: HTMLEleme
     item.setChecked(view.contentMode === "all");
     item.onClick(() => setContentMode(view, "all"));
     modeMenuItems.push({ mode: "content:all", item });
-  });
-
-  menu.addSeparator();
-
-  menu.addItem((item) => {
-    item.setTitle(t("actionOpenSettings"));
-    item.setIcon("lucide-settings");
-    item.onClick(() => openPluginSettings(view.app));
   });
 
   const menuDocument = anchorEl.ownerDocument;
@@ -2192,9 +2441,9 @@ function updateFollowParentButton(view: PatchedExplorerView): void {
 
   button.toggleClass("folder-spaces-back-btn", false);
 
+  const label = t("actionFolderSpaceMenuHint");
   if (view.parentPanelId) {
     // 有父面板 binding → link icon，點擊可切換 follow
-    const label = t("actionSyncFollowParent");
     button.toggle(true);
     button.toggleClass("is-static", false);
     button.toggleClass("is-active", view.followParent);
@@ -2204,10 +2453,9 @@ function updateFollowParentButton(view: PatchedExplorerView): void {
     button.empty();
     setIcon(button, view.followParent ? "lucide-link" : "lucide-unlink");
   } else {
-    // 無 binding → 顯示此 folder space 設定的 folder icon（純顯示，不可點）
-    const label = t("actionFolderIcon");
+    // 無 binding → 顯示此 folder space 設定的 folder icon
     button.toggle(true);
-    button.toggleClass("is-static", true);
+    button.toggleClass("is-static", false);
     button.toggleClass("is-active", false);
     button.removeAttribute("aria-pressed");
     button.setAttr("aria-label", label);
@@ -2461,7 +2709,8 @@ function followParentScopeOnFolderClick(view: PatchedExplorerView, event: MouseE
         hasFolderNoteClass:
           folderTitleEl.hasClass("has-folder-note") ||
           folderTitleEl.getAttribute("data-has-folder-note") === "true" ||
-          Boolean(folderTitleEl.querySelector(".nav-folder-title-content.has-folder-note"))
+          Boolean(folderTitleEl.querySelector(".nav-folder-title-content.has-folder-note")),
+        app: view.app
       })
     : null;
 
@@ -3563,9 +3812,11 @@ function sortNestedFolders(view: PatchedExplorerView): void {
 
 function renderChildren(view: PatchedExplorerView, items: InternalTreeItem[]): void {
   const scrollTop = view.navFileContainerEl.scrollTop;
+  applyFlatItemTitles(view);
   view.tree.infinityScroll.rootEl.vChildren.setChildren(items);
   view.navFileContainerEl.scrollTop = scrollTop;
   view.tree.infinityScroll.compute();
+  applyFlatItemTitles(view);
   refreshSyncFocusMarker(view);
   // 樹更新後重掛 folder note 圖示與 .is-folder-note class（不依賴 isShown，
   // 確保 sidebar/popout 等任何顯示狀態的 leaf 都有 icon）。
@@ -3607,7 +3858,6 @@ function getFlatItems(view: PatchedExplorerView, rootFolder: TFolder): InternalT
 
     if (folderItem && showFolders && folderKept) {
       rememberParent(folderItem, rootItem);
-      setFlatItemLabel(view, folderItem, relativePath);
       syncFlatFolderCollapseState(folderItem);
       flatItems.push(folderItem);
     }
@@ -3636,10 +3886,6 @@ function getFlatItems(view: PatchedExplorerView, rootFolder: TFolder): InternalT
           if (fileItem) {
             rememberParent(fileItem, fileParent);
             if (!showFolders) {
-              // 資料夾群組隱藏時，檔案被提升到 root 層並以「相對路徑/完整檔名」
-              // 標示（含副檔名），讓每個檔案都能看出所在目錄。此分支只在
-              // contentMode=files 時發生（viewMode 必為 flat）。
-              setFlatItemLabel(view, fileItem, `${relativePath}/${file.name}`);
               flatItems.push(fileItem);
             }
           }
@@ -3832,83 +4078,111 @@ function scheduleFlatRefresh(view: PatchedExplorerView, mode: "debounced" | "imm
 }
 
 function getFlatFolderLabel(view: PatchedExplorerView, folder: TFolder): string {
-  if (view.folderPath === null || !isPathInsideFolder(folder.path, view.folderPath)) {
-    return folder.name;
+  return getRelativePathToFolderSpace(folder.path, view.folderPath);
+}
+
+function applyFlatItemTitles(view: PatchedExplorerView): void {
+  const isFlat = view.viewMode === "flat";
+  const isFilesOnly = view.contentMode === "files";
+
+  if (!isFlat && !isFilesOnly) {
+    restoreFlatItemTitles(view);
+    return;
   }
 
-  if (view.folderPath === "") {
-    return folder.path;
-  }
+  for (const item of Object.values(view.fileItems)) {
+    if (!item?.file) {
+      continue;
+    }
 
-  return folder.path.slice(view.folderPath.length + 1) || folder.name;
+    const isFolder = item.file instanceof TFolder;
+    const isFile = item.file instanceof TFile;
+
+    let needsRelativePath = false;
+    if (isFlat && isFolder) {
+      needsRelativePath = true;
+    } else if (isFilesOnly && isFile) {
+      needsRelativePath = true;
+    }
+
+    if (needsRelativePath) {
+      if (!item._originalGetTitle && typeof item.getTitle === "function") {
+        item._originalGetTitle = item.getTitle;
+      }
+      const targetTitle = getRelativePathToFolderSpace(item.file.path, view.folderPath);
+      item.getTitle = function (): string {
+        if (
+          (view.viewMode === "flat" && this.file instanceof TFolder) ||
+          (view.contentMode === "files" && this.file instanceof TFile)
+        ) {
+          return getRelativePathToFolderSpace(this.file.path, view.folderPath);
+        }
+        return this._originalGetTitle ? this._originalGetTitle.call(this) : this.file.name;
+      };
+
+      const labelEl = getItemLabelElement(item);
+      if (labelEl && labelEl.textContent !== targetTitle && typeof item.updateTitle === "function") {
+        item.updateTitle();
+      }
+    } else if (item._originalGetTitle) {
+      const originalTitle = item._originalGetTitle.call(item);
+      item.getTitle = item._originalGetTitle;
+      delete item._originalGetTitle;
+      const labelEl = getItemLabelElement(item);
+      if (labelEl && labelEl.textContent !== originalTitle && typeof item.updateTitle === "function") {
+        item.updateTitle();
+      }
+    }
+  }
+}
+
+function restoreFlatItemTitles(view: PatchedExplorerView): void {
+  for (const item of Object.values(view.fileItems)) {
+    if (item?._originalGetTitle) {
+      const originalTitle = item._originalGetTitle.call(item);
+      item.getTitle = item._originalGetTitle;
+      delete item._originalGetTitle;
+      const labelEl = getItemLabelElement(item);
+      if (labelEl && labelEl.textContent !== originalTitle && typeof item.updateTitle === "function") {
+        item.updateTitle();
+      }
+    }
+  }
 }
 
 function setFlatItemLabel(view: PatchedExplorerView, item: InternalTreeItem, label: string): void {
-  const element = getItemLabelElement(item);
-  if (!element) {
-    return;
+  if (!item._originalGetTitle && typeof item.getTitle === "function") {
+    item._originalGetTitle = item.getTitle;
   }
-
-  const flatItemLabels = view.flatItemLabels ??= new Map();
-  if (flatItemLabels.has(item)) {
-    return;
-  }
-
-  const textNodes = Array.from(element.childNodes).filter(
-    (node): node is Text => node.nodeType === 3
-  );
-  const state: FlatItemLabelState = {
-    element,
-    textNodes: textNodes.map((node) => ({ node, text: node.textContent ?? "" }))
-  };
-
-  if (textNodes.length > 0) {
-    const [firstTextNode, ...remainingTextNodes] = textNodes;
-    if (firstTextNode) {
-      firstTextNode.textContent = label;
-    }
-    for (const textNode of remainingTextNodes) {
-      textNode.textContent = "";
-    }
+  item.getTitle = () => label;
+  if (typeof item.updateTitle === "function") {
+    item.updateTitle();
   } else {
-    const addedNode = document.createTextNode(label);
-    element.appendChild(addedNode);
-    state.addedNode = addedNode;
+    const element = getItemLabelElement(item);
+    if (element) {
+      element.setText(label);
+    }
   }
-
-  flatItemLabels.set(item, state);
 }
 
 function restoreFlatItemLabel(view: PatchedExplorerView, item: InternalTreeItem): void {
-  const state = view.flatItemLabels?.get(item);
-  if (!state) {
-    return;
+  if (item._originalGetTitle) {
+    const originalTitle = item._originalGetTitle.call(item);
+    item.getTitle = item._originalGetTitle;
+    delete item._originalGetTitle;
+    if (typeof item.updateTitle === "function") {
+      item.updateTitle();
+    } else {
+      const element = getItemLabelElement(item);
+      if (element) {
+        element.setText(originalTitle);
+      }
+    }
   }
-
-  restoreFlatLabelState(state);
-  view.flatItemLabels?.delete(item);
 }
 
 function restoreFlatItemLabels(view: PatchedExplorerView): void {
-  if (!view.flatItemLabels) {
-    return;
-  }
-
-  for (const state of view.flatItemLabels.values()) {
-    restoreFlatLabelState(state);
-  }
-  view.flatItemLabels.clear();
-}
-
-function restoreFlatLabelState(state: FlatItemLabelState): void {
-  if (state.addedNode) {
-    state.addedNode.remove();
-    return;
-  }
-
-  for (const textNode of state.textNodes) {
-    textNode.node.textContent = textNode.text;
-  }
+  restoreFlatItemTitles(view);
 }
 
 function getItemLabelElement(item: InternalTreeItem): HTMLElement | null {

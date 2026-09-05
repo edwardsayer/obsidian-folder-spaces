@@ -170,3 +170,15 @@ test("normalizeSortOrder validates key/dir", () => {
 test("default sort order is name asc", () => {
   assert.deepEqual(DEFAULT_FOLDER_SPACE_SORT_ORDER, { key: "name", dir: "asc" });
 });
+
+test("hasMatchingPathDescendant matches nested file paths for query", () => {
+  const root = folder("docs", [
+    folder("features", [
+      file("Obsidian compatibility.md", 0, 0, "docs/features/Obsidian compatibility.md")
+    ], "docs/features")
+  ], "docs");
+
+  assert.equal(hasMatchingPathDescendant(root as any, "compat"), true);
+  assert.equal(hasMatchingPathDescendant(root as any, "features"), true);
+  assert.equal(hasMatchingPathDescendant(root as any, "nonexistent"), false);
+});

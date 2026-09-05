@@ -96,6 +96,9 @@ type LocaleKey =
   | "actionExpandAll"
   | "actionOpenSettings"
   | "actionOpenFolderNote"
+  | "actionFolderSpaceMenuHint"
+  | "actionToggleParentLink"
+  | "actionRemoveParentLink"
   | "settingsPresetsReferenceHeading"
   | "settingsPresetsReferenceDesc"
   | "settingsCascadeSection"
@@ -202,6 +205,9 @@ const ENGLISH: LocaleTable = {
   actionExpandAll: "Expand all",
   actionOpenSettings: "Open Folder Spaces settings",
   actionOpenFolderNote: "Open folder note",
+  actionFolderSpaceMenuHint: "Right-click to open actions menu",
+  actionToggleParentLink: "Enable/disable link",
+  actionRemoveParentLink: "Remove parent link (cannot be undone)",
   settingsPresetsReferenceHeading: "Preset configurations reference",
   settingsPresetsReferenceDesc: "Overview of the 7 built-in Folder Space view presets and their parameters.",
   settingsCascadeSection: "Cascade & linking",
@@ -308,6 +314,9 @@ const TRADITIONAL_CHINESE: LocaleTable = {
   actionExpandAll: "全部展開",
   actionOpenSettings: "開啟 Folder Spaces 設定",
   actionOpenFolderNote: "開啟資料夾筆記",
+  actionFolderSpaceMenuHint: "按右鍵開啟操作選單",
+  actionToggleParentLink: "啟用/停用連結",
+  actionRemoveParentLink: "移除父連結 (無法復原)",
   settingsPresetsReferenceHeading: "預設集規格對照表",
   settingsPresetsReferenceDesc: "Folder Space 7 大內建檢視預設集的維度參數與說明。",
   settingsCascadeSection: "雙面板接龍與連動",
@@ -414,6 +423,9 @@ const SIMPLIFIED_CHINESE: LocaleTable = {
   actionExpandAll: "全部展开",
   actionOpenSettings: "打开 Folder Spaces 设置",
   actionOpenFolderNote: "打开文件夹笔记",
+  actionFolderSpaceMenuHint: "按右键打开操作菜单",
+  actionToggleParentLink: "启用/停用链接",
+  actionRemoveParentLink: "移除父链接 (无法复原)",
   settingsPresetsReferenceHeading: "预设规格对照表",
   settingsPresetsReferenceDesc: "Folder Space 7 大内置视图预设的维度参数与说明。",
   settingsCascadeSection: "双面板接龙与连动",
