@@ -101,18 +101,41 @@ export class WindowActiveFileTracker {
    */
   getActiveFileForWindow(win: Window | null | undefined): TFile | null {
     if (!win) {
-      return this.app?.workspace?.getActiveFile?.() ?? null;
+      const file = this.state.lastActiveWindow
+        ? this.state.windowActiveFiles.get(this.state.lastActiveWindow)
+        : null;
+      if (file) return file;
+      // INTERNAL API: Workspace.activeLeaf - deprecated; used here because calling
+      // workspace.getActiveFile() would re-enter the workspaceInterceptor hook and
+      // recurse infinitely (see isResolvingActiveFile guard). We only read
+      // activeLeaf.view.file and never call back into intercepted APIs.
+      const activeLeaf = this.app?.workspace
+        ? (this.app.workspace as { activeLeaf?: WorkspaceLeaf | null }).activeLeaf
+        : null;
+      const view = activeLeaf?.view as { file?: unknown } | null;
+      const leafFile = view?.file;
+      if (leafFile && typeof leafFile === "object" && "path" in leafFile) {
+        return leafFile as TFile;
+      }
+      return null;
     }
     const file = this.state.windowActiveFiles.get(win);
     if (file !== undefined) {
       return file;
     }
     // Fallback: check if the global active leaf belongs to this window
+    // INTERNAL API: Workspace.activeLeaf (deprecated) - same rationale as above:
+    // read view.file directly to avoid re-entering the getActiveFile hook.
     const activeLeaf = this.app?.workspace
       ? (this.app.workspace as { activeLeaf?: WorkspaceLeaf | null }).activeLeaf
       : null;
     if (activeLeaf && getWindowOfLeaf(activeLeaf) === win) {
-      return this.app.workspace.getActiveFile?.() ?? null;
+      const view = activeLeaf.view as { file?: unknown } | null;
+      const leafFile = view?.file;
+      if (leafFile && typeof leafFile === "object" && "path" in leafFile) {
+        return leafFile as TFile;
+      }
+      return null;
     }
     return null;
   }

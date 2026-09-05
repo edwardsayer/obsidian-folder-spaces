@@ -386,15 +386,27 @@ function install(state: InterceptorState): void {
     }
   };
 
-  // INTERNAL API: workspace.getActiveFile - 視窗感知 active file 路由，優先取得當前 Popout 視窗作用檔案
+  // INTERNAL API: workspace.getActiveFile - 視窗感知 active file 路由，優先取得當前 Popout 視窗作用檔案。
+  // isResolvingActiveFile 重入保護：tracker fallback 若間接回呼本攔截會造成無窮遞迴
+  // （RangeError: Maximum call stack size exceeded），重入時直接 fallback 原始實作。
+  let isResolvingActiveFile = false;
   workspace.getActiveFile = function (): TFile | null {
-    const activeWindow = getActivePopoutWindow(state);
-    if (activeWindow) {
-      const winFile = state.tracker.getActiveFileForWindow(activeWindow);
-      if (winFile) return winFile;
+    if (isResolvingActiveFile) {
+      const original = state.originalMethods?.getActiveFile.value;
+      return original ? original.call(workspace) : null;
     }
-    const original = state.originalMethods?.getActiveFile.value;
-    return original ? original.call(workspace) : null;
+    isResolvingActiveFile = true;
+    try {
+      const activeWindow = getActivePopoutWindow(state);
+      if (activeWindow) {
+        const winFile = state.tracker.getActiveFileForWindow(activeWindow);
+        if (winFile) return winFile;
+      }
+      const original = state.originalMethods?.getActiveFile.value;
+      return original ? original.call(workspace) : null;
+    } finally {
+      isResolvingActiveFile = false;
+    }
   };
 
   // 監聽 Workspace 事件以持續更新視窗作用檔案追蹤
