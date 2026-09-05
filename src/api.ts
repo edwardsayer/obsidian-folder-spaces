@@ -40,7 +40,7 @@ export function isFolderSpaceView(target: unknown): boolean {
     return true;
   }
 
-	if (typeof view.getViewType === "function" && view.getViewType() === FOLDER_SPACES_VIEW_TYPE) {
+  if (typeof view.getViewType === "function" && view.getViewType() === FOLDER_SPACES_VIEW_TYPE) {
     return true;
   }
 
