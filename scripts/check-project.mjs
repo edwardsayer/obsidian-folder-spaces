@@ -66,7 +66,7 @@ const requiredPaths = [
   "scripts/obsidian-debug.mjs",
   "tests/",
   "tests/integration/",
-  "doc/api.md",
+  "docs/api.md",
 ];
 for (const p of requiredPaths) {
   if (existsSync(join(root, p))) {

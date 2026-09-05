@@ -1,5 +1,7 @@
 # Folder Spaces API Documentation
 
+Language: **English** | [繁體中文](api.zh-TW.md) | [简体中文](api.zh-CN.md)
+
 This document describes the public API provided by `folder-spaces` for integration with third-party Obsidian plugins (e.g., **Obsidian Window Spaces**).
 
 ## Accessing the API
@@ -55,4 +57,4 @@ Returns the folder path (e.g. `"Projects/Active"`) configured for the given `lea
 Returns an array of all active `FolderSpaceView` instances currently open across all workspace splits and windows.
 
 ### 4. `openFolderSpace(folderPath: string, location?: "left-sidebar" | "right-sidebar" | "editor" | "window"): Promise<WorkspaceLeaf | null>`
-Programmatically opens a Folder Space leaf for `folderPath` at the designated location (`"left-sidebar"`, `"right-sidebar"`, `"editor"`, or `"window"`). Returns the created or revealed `WorkspaceLeaf`.
+Programmatically opens a Folder Space tab for `folderPath` at the designated location (`"left-sidebar"`, `"right-sidebar"`, `"editor"`, or `"window"`). Returns the created or revealed `WorkspaceLeaf`.
