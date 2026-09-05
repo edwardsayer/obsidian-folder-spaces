@@ -274,7 +274,7 @@ export function getRelativePathToFolderSpace(filePath: string, folderPath: strin
 }
 
 export function isHTMLElement(value: HTMLElement | undefined): value is HTMLElement {
-  return value instanceof HTMLElement;
+  return value?.instanceOf(HTMLElement) ?? false;
 }
 
 export function getFolderSpaceTitle(

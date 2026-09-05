@@ -131,7 +131,7 @@ export class FileExplorerCompatibilityBridge {
         return;
       }
       const view = leaf.view as FileExplorerViewLike;
-      if (view.containerEl instanceof HTMLElement && Boolean(view.fileItems)) {
+      if (view.containerEl?.instanceOf(HTMLElement) && Boolean(view.fileItems)) {
         views.push(view);
       }
     });

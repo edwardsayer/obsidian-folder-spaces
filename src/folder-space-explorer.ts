@@ -2590,15 +2590,16 @@ function registerFlatRenameEditorOverride(view: PatchedExplorerView): void {
     "focusin",
     (event: FocusEvent) => {
       const isFlatRendering = view.viewMode === "flat" || view.contentMode === "files";
-      if (!isFlatRendering || !(event.target instanceof HTMLElement)) {
+      const target = event.target;
+      if (!isFlatRendering || !(target instanceof HTMLElement)) {
         return;
       }
 
-      const selfEl = event.target.closest<HTMLElement>(".tree-item-self.is-being-renamed");
+      const selfEl = target.closest<HTMLElement>(".tree-item-self.is-being-renamed");
       const itemPath = selfEl?.dataset.path;
       const file = itemPath ? view.app.vault.getAbstractFileByPath(itemPath) : null;
       if (file instanceof TAbstractFile) {
-        clearFlatItemInlineEditorPath(view, file, event.target);
+        clearFlatItemInlineEditorPath(view, file, target);
       }
     },
     { capture: true }

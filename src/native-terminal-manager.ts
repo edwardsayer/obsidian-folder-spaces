@@ -76,7 +76,7 @@ export class NativeTerminalManager {
     const currentContainers = new Set(
       views
         .map((v) => v.navFileContainerEl || v.containerEl)
-        .filter((el): el is HTMLElement => el instanceof HTMLElement)
+        .filter((el): el is HTMLElement => el?.instanceOf(HTMLElement) ?? false)
     );
 
     for (const [container, observer] of this.observersByContainer) {
