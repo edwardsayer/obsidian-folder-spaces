@@ -31,6 +31,7 @@ import {
   type FolderSpaceContentMode
 } from "./compatibility-helpers.js";
 export { makeNavigable };
+import { isShowUnsupportedFilesEnabled, toInternalApp } from "./types.js";
 import {
   computeNextFocusedItem,
   getVisibleTreeItems as getVisibleTreeItemsHelper,
@@ -897,11 +898,11 @@ function patchExplorerView(
       }
     };
 
-    view.app.workspace.on("file-menu", handler as any);
+    view.app.workspace.on("file-menu", handler);
     try {
       originalOnFileContextMenu(event, file);
     } finally {
-      view.app.workspace.off("file-menu", handler as any);
+      view.app.workspace.off("file-menu", handler);
     }
   };
 
@@ -962,8 +963,11 @@ function patchExplorerView(
     }
   };
 
-  const originalOnClose = (view as any).onClose?.bind(view);
-  (view as any).onClose = async () => {
+  // INTERNAL API: View.onClose 為 protected 生命週期钩子，以型別化 patch view 攔截。
+  type CloseableView = PatchedExplorerView & { onClose?: () => Promise<void> | void };
+  const closeView = view as CloseableView;
+  const originalOnClose = closeView.onClose?.bind(view);
+  closeView.onClose = async () => {
     restoreFlatItemParents(view);
     restoreFlatItemTitles(view);
     return originalOnClose ? originalOnClose() : Promise.resolve();
@@ -1802,8 +1806,8 @@ export function isTerminalFolderItem(view: PatchedExplorerView, folder: TFolder)
   }
 
   // 檢查是否所有項目均為未支援的檔案（未開啟 showUnsupportedFiles 且未註冊副檔名）
-  const showUnsupported = (view.app?.vault as any)?.getConfig?.("showUnsupportedFiles") === true;
-  const viewRegistry = (view.app as any)?.viewRegistry;
+  const showUnsupported = isShowUnsupportedFilesEnabled(view.app);
+  const viewRegistry = toInternalApp(view.app).viewRegistry;
 
   const supportedItems = items.filter((item) => {
     if (!item?.file || item.file instanceof TFolder) {

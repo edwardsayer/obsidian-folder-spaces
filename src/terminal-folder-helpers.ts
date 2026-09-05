@@ -1,5 +1,6 @@
+import type { App, TFolder } from "obsidian";
 import type { FolderNotesPluginSettings } from "./folder-note-compat.js";
-import { resolveFolderNote } from "./folder-note-compat.js";
+import { isNoteFileTypeSupported, resolveFolderNote } from "./folder-note-compat.js";
 
 export interface AbstractFileLike {
   path: string;
@@ -24,17 +25,12 @@ export interface TreeItemLike {
 
 export interface TerminalFolderOptions {
   folderNotesSettings?: FolderNotesPluginSettings | null;
-  app?: any;
+  app?: App;
 }
 
-export function isFileSupported(file: AbstractFileLike, app?: any): boolean {
+export function isFileSupported(file: AbstractFileLike, app?: App): boolean {
   if (file.children !== undefined) {
     return true; // 資料夾永遠支援展示
-  }
-
-  const showUnsupported = app?.vault?.getConfig?.("showUnsupportedFiles");
-  if (showUnsupported === true) {
-    return true;
   }
 
   const name = file.name || file.path.split("/").pop() || "";
@@ -44,12 +40,7 @@ export function isFileSupported(file: AbstractFileLike, app?: any): boolean {
   }
   const ext = name.slice(dotIndex + 1).toLowerCase();
 
-  const viewRegistry = app?.viewRegistry;
-  if (viewRegistry && typeof viewRegistry.isExtensionRegistered === "function") {
-    return viewRegistry.isExtensionRegistered(ext);
-  }
-
-  return ext === "md" || ext === "canvas";
+  return isNoteFileTypeSupported(ext, app);
 }
 
 /**
@@ -88,7 +79,7 @@ export function isNativeTerminalFolder(
 
   // 2. 檢查 Folder Note：若所有可展示項目僅包含該被隱藏的 folder note
   if (folderNotesSettings) {
-    const info = resolveFolderNote(folder as any, {
+    const info = resolveFolderNote(folder as TFolder, {
       folderNotesSettings,
       hasFolderNoteClass: false
     });

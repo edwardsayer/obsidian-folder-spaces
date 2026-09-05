@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { App, TFolder } from "obsidian";
 
 import {
   readFolderNotesSettings,
@@ -19,8 +20,8 @@ interface MockFolder {
   children: MockChild[];
 }
 
-function makeFolder(name: string, path: string, children: MockChild[]): MockFolder {
-  return { name, path, children };
+function makeFolder(name: string, path: string, children: MockChild[]): TFolder {
+  return { name, path, children } as unknown as TFolder;
 }
 
 function makeFile(name: string, path: string): MockChild {
@@ -39,7 +40,7 @@ test("無 plugin：資料夾內同名 .md 為 folder note，其餘檔案正常�
     makeFile("README.md", "Projects/Project/README.md")
   ]);
 
-  const info = resolveFolderNote(folder as any, DEFAULT_OPTIONS);
+  const info = resolveFolderNote(folder, DEFAULT_OPTIONS);
   assert.equal(info.hasNote, true);
   assert.equal(info.notePath, "Projects/Project/Project.md");
   assert.equal(info.shouldHide, false);
@@ -52,7 +53,7 @@ test("無 plugin：多檔同名時 .md 優先，其餘字母序", () => {
     makeFile("Project.md", "Projects/Project/Project.md")
   ]);
 
-  const info = resolveFolderNote(folder as any, DEFAULT_OPTIONS);
+  const info = resolveFolderNote(folder, DEFAULT_OPTIONS);
   assert.equal(info.notePath, "Projects/Project/Project.md");
 
   // 無 .md 時依字母序
@@ -60,7 +61,7 @@ test("無 plugin：多檔同名時 .md 優先，其餘字母序", () => {
     makeFile("Project.txt", "Projects/Project/Project.txt"),
     makeFile("Project.canvas", "Projects/Project/Project.canvas")
   ]);
-  const infoNoMd = resolveFolderNote(noMd as any, DEFAULT_OPTIONS);
+  const infoNoMd = resolveFolderNote(noMd, DEFAULT_OPTIONS);
   assert.equal(infoNoMd.notePath, "Projects/Project/Project.canvas");
 });
 
@@ -69,7 +70,7 @@ test("無 plugin：無同名檔時無 folder note", () => {
     makeFile("README.md", "Projects/Project/README.md")
   ]);
 
-  const info = resolveFolderNote(folder as any, DEFAULT_OPTIONS);
+  const info = resolveFolderNote(folder, DEFAULT_OPTIONS);
   assert.equal(info.hasNote, false);
   assert.equal(info.notePath, null);
 });
@@ -82,7 +83,7 @@ test("無 plugin：多點副檔名/測試檔案（如 frames.test.ts）不應被
     makeFile("index.ts", "quartz/components/frames/index.ts")
   ]);
 
-  const info = resolveFolderNote(folder as any, DEFAULT_OPTIONS);
+  const info = resolveFolderNote(folder, DEFAULT_OPTIONS);
   assert.equal(info.hasNote, false);
   assert.equal(info.notePath, null);
 });
@@ -93,15 +94,15 @@ test("無 plugin：未被 Obsidian 支援且未開啟 showUnsupportedFiles 的�
   ]);
 
   // 1. 預設環境（未開啟 showUnsupportedFiles，未註冊 .ts）
-  const infoDefault = resolveFolderNote(folder as any, DEFAULT_OPTIONS);
+  const infoDefault = resolveFolderNote(folder, DEFAULT_OPTIONS);
   assert.equal(infoDefault.hasNote, false);
   assert.equal(infoDefault.notePath, null);
 
   // 2. 模擬 Obsidian vault 開啟了 showUnsupportedFiles
   const appWithShowUnsupported = {
     vault: { getConfig: (key: string) => (key === "showUnsupportedFiles" ? true : false) }
-  };
-  const infoShowUnsupported = resolveFolderNote(folder as any, {
+  } as unknown as App;
+  const infoShowUnsupported = resolveFolderNote(folder, {
     ...DEFAULT_OPTIONS,
     app: appWithShowUnsupported
   });
@@ -111,8 +112,8 @@ test("無 plugin：未被 Obsidian 支援且未開啟 showUnsupportedFiles 的�
   // 3. 模擬 Obsidian viewRegistry 註冊了 .ts
   const appWithViewRegistry = {
     viewRegistry: { isExtensionRegistered: (ext: string) => ext === "ts" }
-  };
-  const infoRegistered = resolveFolderNote(folder as any, {
+  } as unknown as App;
+  const infoRegistered = resolveFolderNote(folder, {
     ...DEFAULT_OPTIONS,
     app: appWithViewRegistry
   });
@@ -132,7 +133,7 @@ test("有 plugin：嚴格 respect Folder Note 設定中的副檔名與型態", (
     supportedFileTypes: ["md"],
     folderNoteName: "{{folder_name}}"
   };
-  const infoMd = resolveFolderNote(folder as any, {
+  const infoMd = resolveFolderNote(folder, {
     folderNotesSettings: settingsMdOnly,
     hasFolderNoteClass: false
   });
@@ -143,7 +144,7 @@ test("有 plugin：嚴格 respect Folder Note 設定中的副檔名與型態", (
   const folderOnlyTs = makeFolder("loader", "quartz/plugins/loader", [
     makeFile("loader.ts", "quartz/plugins/loader/loader.ts")
   ]);
-  const infoTsOnly = resolveFolderNote(folderOnlyTs as any, {
+  const infoTsOnly = resolveFolderNote(folderOnlyTs, {
     folderNotesSettings: settingsMdOnly,
     hasFolderNoteClass: false
   });
@@ -154,7 +155,7 @@ test("有 plugin：嚴格 respect Folder Note 設定中的副檔名與型態", (
 test("無 plugin：root 資料夾的同名檔（不應為 folder note）", () => {
   // root folder 的 name 是空字串或 vault 名；同名檔幾乎不可能，但規則應安全
   const folder = makeFolder("", "", [makeFile("README.md", "README.md")]);
-  const info = resolveFolderNote(folder as any, DEFAULT_OPTIONS);
+  const info = resolveFolderNote(folder, DEFAULT_OPTIONS);
   assert.equal(info.hasNote, false);
 });
 
@@ -170,7 +171,7 @@ test("有 plugin：依 folderNoteName 模板與 storageLocation 解析", () => {
     hideFolderNote: true
   };
 
-  const info = resolveFolderNote(folder as any, {
+  const info = resolveFolderNote(folder, {
     folderNotesSettings: settings,
     hasFolderNoteClass: false
   });
@@ -184,7 +185,7 @@ test("有 plugin：storageLocation parentFolder 時 note 在父資料夾", () =>
   const parentFolder = makeFolder("Projects", "Projects", parentChildren);
   const folder = makeFolder("Project", "Projects/Project", []);
   // mock parent 連結
-  (folder as any).parent = parentFolder;
+  (folder).parent = parentFolder;
 
   const settings: FolderNotesPluginSettings = {
     folderNoteName: "{{folder_name}}",
@@ -194,7 +195,7 @@ test("有 plugin：storageLocation parentFolder 時 note 在父資料夾", () =>
     hideFolderNote: false
   };
 
-  const info = resolveFolderNote(folder as any, {
+  const info = resolveFolderNote(folder, {
     folderNotesSettings: settings,
     hasFolderNoteClass: false
   });
@@ -215,7 +216,7 @@ test("有 plugin：hideFolderNote false 時不隱藏", () => {
     hideFolderNote: false
   };
 
-  const info = resolveFolderNote(folder as any, {
+  const info = resolveFolderNote(folder, {
     folderNotesSettings: settings,
     hasFolderNoteClass: false
   });
@@ -237,7 +238,7 @@ test("有 plugin：excludeFolders 中 disableFolderNote 的資料夾視為無 no
     excludeFolders: [{ path: "Projects/Project", disableFolderNote: true }]
   };
 
-  const info = resolveFolderNote(folder as any, {
+  const info = resolveFolderNote(folder, {
     folderNotesSettings: settings,
     hasFolderNoteClass: false
   });
@@ -260,14 +261,14 @@ test("有 plugin：解析失敗時不降級到慣例，以 has-folder-note class
   };
 
   // 無 class → 視為無 note
-  const noClass = resolveFolderNote(folder as any, {
+  const noClass = resolveFolderNote(folder, {
     folderNotesSettings: settings,
     hasFolderNoteClass: false
   });
   assert.equal(noClass.hasNote, false);
 
   // 有 has-folder-note class → 有 note 但不隱藏（解析不出路徑）
-  const withClass = resolveFolderNote(folder as any, {
+  const withClass = resolveFolderNote(folder, {
     folderNotesSettings: settings,
     hasFolderNoteClass: true
   });
@@ -288,7 +289,7 @@ test("有 plugin：folderNoteType .excalidraw 對應 .md", () => {
     hideFolderNote: true
   };
 
-  const info = resolveFolderNote(folder as any, {
+  const info = resolveFolderNote(folder, {
     folderNotesSettings: settings,
     hasFolderNoteClass: false
   });

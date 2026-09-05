@@ -1,4 +1,5 @@
-import type { TFolder } from "obsidian";
+import type { App, TFolder } from "obsidian";
+import { isExtensionRegisteredByRegistry, isShowUnsupportedFilesEnabled } from "./types.js";
 
 /**
  * Folder Note 相容層：解析「哪個檔案是某資料夾的 Folder Note」。
@@ -48,7 +49,7 @@ export interface ResolveFolderNoteOptions {
   /** 資料夾 title 是否帶 has-folder-note class（輔助信號，僅在解析失敗時使用）。 */
   hasFolderNoteClass: boolean;
   /** Obsidian App 實例（可選，用於判斷 vault 的 showUnsupportedFiles 與 viewRegistry 是否支援該檔案類型）。 */
-  app?: any;
+  app?: App;
 }
 
 const FOLDER_NAME_TEMPLATE = "{{folder_name}}";
@@ -59,7 +60,7 @@ const FOLDER_NAME_TEMPLATE = "{{folder_name}}";
  * 2. 否則，副檔名必須已被 Obsidian 視圖註冊（app.viewRegistry.isExtensionRegistered(ext)）。
  * 3. 若無 app 或 viewRegistry 實例（如純 Node 單元測試），預設支援 Obsidian 核心筆記類型：.md 與 .canvas。
  */
-export function isNoteFileTypeSupported(extWithoutDotOrWithDot: string, app?: any): boolean {
+export function isNoteFileTypeSupported(extWithoutDotOrWithDot: string, app?: App): boolean {
   const ext = extWithoutDotOrWithDot.startsWith(".")
     ? extWithoutDotOrWithDot.slice(1).toLowerCase()
     : extWithoutDotOrWithDot.toLowerCase();
@@ -68,14 +69,13 @@ export function isNoteFileTypeSupported(extWithoutDotOrWithDot: string, app?: an
     return false;
   }
 
-  const showUnsupported = app?.vault?.getConfig?.("showUnsupportedFiles");
-  if (showUnsupported === true) {
+  if (app && isShowUnsupportedFilesEnabled(app)) {
     return true;
   }
 
-  const viewRegistry = app?.viewRegistry;
-  if (viewRegistry && typeof viewRegistry.isExtensionRegistered === "function") {
-    return viewRegistry.isExtensionRegistered(ext);
+  const registered = app ? isExtensionRegisteredByRegistry(app, ext) : null;
+  if (registered !== null) {
+    return registered;
   }
 
   return ext === "md" || ext === "canvas";
@@ -96,7 +96,7 @@ function compareNoteExtensions(left: string, right: string): number {
  * 多檔符合時依副檔名優先序取第一個（.md 優先，其餘字母序）。
  * 其餘符合檔一律視為一般檔案（正常顯示）。
  */
-function resolveByConvention(folder: TFolder, app?: any): string | null {
+function resolveByConvention(folder: TFolder, app?: App): string | null {
   const candidates: Array<{ path: string; ext: string }> = [];
   for (const child of folder.children) {
     if ("children" in child) {
