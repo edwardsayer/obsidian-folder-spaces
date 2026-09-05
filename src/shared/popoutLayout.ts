@@ -112,7 +112,7 @@ export function getWindowOfLeaf(leaf: WorkspaceLeaf | null | undefined): Window 
 /** 測量 WorkspaceTabs 容器本身的 DOMRect（背景 tab 寬高為 0，需測 tabs 容器）。 */
 export function getPaneRect(tabs: WorkspaceParent | null | undefined): DOMRect | null {
   const container = tabs?.containerEl;
-  if (container instanceof HTMLElement) {
+  if (isHTMLElement(container)) {
     const rect = container.getBoundingClientRect();
     if (rect.width > 0 && rect.height > 0) return rect;
   }
@@ -120,7 +120,7 @@ export function getPaneRect(tabs: WorkspaceParent | null | undefined): DOMRect |
   for (const leaf of children) {
     const extLeaf = leaf as unknown as ExtendedWorkspaceLeaf;
     const leafContainer = extLeaf.containerEl || (leaf.view as { containerEl?: HTMLElement } | null)?.containerEl;
-    if (leafContainer instanceof HTMLElement) {
+    if (isHTMLElement(leafContainer)) {
       const rect = leafContainer.getBoundingClientRect();
       if (rect.width > 0 && rect.height > 0) return rect;
     }
@@ -191,11 +191,20 @@ export function getDirectChildOf(root: HTMLElement, element: HTMLElement): HTMLE
   return current && current.parentElement === root ? current : null;
 }
 
+/**
+ * 跨 window 安全的 HTMLElement 檢查（Obsidian runtime prototype helper）。
+ * 具備防禦：非 DOM 節點（如測試 mock）直接回 false，不會抛錯。
+ */
+export function isHTMLElement(el: unknown): el is HTMLElement {
+  return !!(el && typeof (el as { instanceOf?: unknown }).instanceOf === "function" &&
+    (el as { instanceOf: (type: abstract new (...args: never[]) => unknown) => boolean }).instanceOf(HTMLElement));
+}
+
 /** 找到 leaf 在其 parent split 下的 direct child 元素（`.workspace-tabs` 或巢狀 split）。 */
 export function getPaneContainerElement(leaf: WorkspaceLeaf): HTMLElement | null {
   const extLeaf = leaf as unknown as ExtendedWorkspaceLeaf;
   const container = extLeaf.containerEl || (leaf.view as { containerEl?: HTMLElement } | null)?.containerEl;
-  if (!(container instanceof HTMLElement)) return null;
+  if (!(isHTMLElement(container))) return null;
 
   let current: HTMLElement | null = container;
   while (current && current.parentElement) {
@@ -246,7 +255,7 @@ function setElementCssStyles(el: HTMLElement, styles: Record<string, string>): v
 function getViewContainer(leaf: WorkspaceLeaf): HTMLElement | null {
   const extLeaf = leaf as unknown as ExtendedWorkspaceLeaf;
   const container = extLeaf.containerEl || (leaf.view as { containerEl?: HTMLElement } | null)?.containerEl;
-  return container instanceof HTMLElement ? container : null;
+  return isHTMLElement(container) ? container : null;
 }
 
 function getDirectSplitChild(split: HTMLElement, element: HTMLElement): HTMLElement | null {
@@ -428,7 +437,7 @@ export class PopoutLayoutEngine {
       if (getWindowOfLeaf(leaf) !== win || leaf.getViewState()?.type !== viewType) return;
       const extLeaf = leaf as unknown as ExtendedWorkspaceLeaf;
       const container = extLeaf.containerEl || (leaf.view as { containerEl?: HTMLElement } | null)?.containerEl;
-      if (container instanceof HTMLElement && columnEl.contains(container)) {
+      if (isHTMLElement(container) && columnEl.contains(container)) {
         found = leaf;
       }
     });
@@ -576,7 +585,7 @@ export class PopoutLayoutEngine {
     if (getWindowOfLeaf(leaf) !== win) return null;
     const extLeaf = leaf as unknown as ExtendedWorkspaceLeaf;
     const container = extLeaf.containerEl || (leaf.view as { containerEl?: HTMLElement } | null)?.containerEl;
-    if (container instanceof HTMLElement && columnEl.contains(container)) {
+    if (isHTMLElement(container) && columnEl.contains(container)) {
       return extLeaf.parent ?? null;
     }
     return null;
@@ -584,7 +593,7 @@ export class PopoutLayoutEngine {
 
   /** 判斷記憶中的 tabs 群組是否仍存在於指定 sidebar column。 */
   private isTabsInColumn(win: Window, columnEl: HTMLElement, tabs: WorkspaceParent): boolean {
-    if (tabs.containerEl instanceof HTMLElement && columnEl.contains(tabs.containerEl)) {
+    if (isHTMLElement(tabs.containerEl) && columnEl.contains(tabs.containerEl)) {
       return true;
     }
 
@@ -594,7 +603,7 @@ export class PopoutLayoutEngine {
       const extLeaf = leaf as unknown as ExtendedWorkspaceLeaf;
       if (extLeaf.parent !== tabs) return;
       const container = extLeaf.containerEl || (leaf.view as { containerEl?: HTMLElement } | null)?.containerEl;
-      if (container instanceof HTMLElement && columnEl.contains(container)) {
+      if (isHTMLElement(container) && columnEl.contains(container)) {
         found = true;
       }
     });
@@ -662,7 +671,7 @@ export class PopoutLayoutEngine {
     if (getWindowOfLeaf(leaf) !== win) return null;
     const extLeaf = leaf as unknown as ExtendedWorkspaceLeaf;
     const container = extLeaf.containerEl || (leaf.view as { containerEl?: HTMLElement } | null)?.containerEl;
-    if (!(container instanceof HTMLElement)) return null;
+    if (!(isHTMLElement(container))) return null;
 
     const column = this.getTopLevelColumnForContainer(container);
     if (!isSidebarColumnElement(column)) return null;
@@ -770,7 +779,7 @@ export class PopoutLayoutEngine {
     if (!leaf || getWindowOfLeaf(leaf) !== win) return false;
     const extLeaf = leaf as unknown as ExtendedWorkspaceLeaf;
     const container = extLeaf.containerEl || (leaf.view as { containerEl?: HTMLElement } | null)?.containerEl;
-    if (!(container instanceof HTMLElement)) return false;
+    if (!(isHTMLElement(container))) return false;
 
     return isSidebarColumnElement(this.getTopLevelColumnForContainer(container));
   }
@@ -793,14 +802,14 @@ export class PopoutLayoutEngine {
     const centerPanes = panes.filter((pane) => {
       const tabs = pane.tabs;
       const container = tabs.containerEl;
-      if (container instanceof HTMLElement) {
+      if (isHTMLElement(container)) {
         if (isSidebarColumnElement(this.getTopLevelColumnForContainer(container))) return false;
       }
       const children = (tabs.children ?? []) as WorkspaceLeaf[];
       for (const leaf of children) {
         const extLeaf = leaf as unknown as ExtendedWorkspaceLeaf;
         const leafContainer = extLeaf.containerEl || (leaf.view as { containerEl?: HTMLElement } | null)?.containerEl;
-        if (leafContainer instanceof HTMLElement) {
+        if (isHTMLElement(leafContainer)) {
           if (isSidebarColumnElement(this.getTopLevelColumnForContainer(leafContainer))) return false;
         }
       }
@@ -814,7 +823,7 @@ export class PopoutLayoutEngine {
   private isLeafVisibleInPane(leaf: WorkspaceLeaf): boolean {
     const extLeaf = leaf as unknown as ExtendedWorkspaceLeaf;
     const container = extLeaf.containerEl || (leaf.view as { containerEl?: HTMLElement } | null)?.containerEl;
-    if (!(container instanceof HTMLElement)) return false;
+    if (!(isHTMLElement(container))) return false;
     return container.offsetParent !== null;
   }
 
@@ -984,13 +993,13 @@ export class PopoutLayoutEngine {
     const container =
       (leaf as unknown as ExtendedWorkspaceLeaf).containerEl ||
       (leaf.view as { containerEl?: HTMLElement } | null)?.containerEl;
-    if (!(container instanceof HTMLElement)) return [];
+    if (!(isHTMLElement(container))) return [];
 
     const rootEl = findRootSplitElement(container);
     if (!rootEl) return [];
 
     let topEls = Array.from(rootEl.children).filter((el): el is HTMLElement => {
-      if (!(el instanceof HTMLElement)) return false;
+      if (!(isHTMLElement(el))) return false;
       return (
         el.classList.contains("workspace-tabs") ||
         el.classList.contains("workspace-split")
@@ -1010,7 +1019,7 @@ export class PopoutLayoutEngine {
       popoutColumnContainer.classList.contains("workspace-split")
     ) {
       const containerChildren = Array.from(popoutColumnContainer.children).filter((el): el is HTMLElement => {
-        if (!(el instanceof HTMLElement)) return false;
+        if (!(isHTMLElement(el))) return false;
         return (
           el.classList.contains("workspace-tabs") ||
           el.classList.contains("workspace-split")

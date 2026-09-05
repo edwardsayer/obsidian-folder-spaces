@@ -38,6 +38,9 @@ interface Rect {
 
 class FakeElement {
   parentElement: FakeElement | null = null;
+  instanceOf(cls: unknown): boolean {
+    return cls === HTMLElement;
+  }
   readonly children: FakeElement[] = [];
   readonly classList: { contains: (name: string) => boolean };
 
