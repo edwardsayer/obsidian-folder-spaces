@@ -24,7 +24,6 @@ data.json
 Thumbs.db
 
 # AI & IDE directories
-agents/
 .agents/
 .claude/
 .gemini/
@@ -33,13 +32,10 @@ agents/
 .vscode/
 .commandcode/
 
-# Local-only files & archived development documents
+# Local-only files & internal development documents
 AGENTS.md
 TODO.md
-doc/manual-test-plan.md
-
-# Local reference images
-refs/
+dev/
 
 # Test build output
 .test-dist/

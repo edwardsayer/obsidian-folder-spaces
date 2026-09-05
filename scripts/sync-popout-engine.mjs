@@ -28,7 +28,9 @@ const __dirname = dirname(__filename);
 const PATHS = {
   windowSpaces: process.env.WINDOW_SPACES_SRC
     ? resolve(process.env.WINDOW_SPACES_SRC)
-    : join(__dirname, "../../ObsidianWindowSpaces/src/shared"),
+    : existsSync(join(__dirname, "../../WindowSpaces/src/shared"))
+      ? join(__dirname, "../../WindowSpaces/src/shared")
+      : join(__dirname, "../../ObsidianWindowSpaces/src/shared"),
   folderSpaces: join(__dirname, "../src/shared"),
   
   // 來源與目標檔案必須保持完整且 byte-identical。
