@@ -25,13 +25,18 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // 路徑配置（來源可經 WINDOW_SPACES_SRC 覆寫，供 CI 使用）
+// 若無外部來源（如 Obsidian 審核的乾淨 build 環境），退回 src/shared/ 自身
+//（canonical 副本本就會 commit 進 repo），讓 build 自給自足。
+const localShared = join(__dirname, "../src/shared");
 const PATHS = {
-  windowSpaces: process.env.WINDOW_SPACES_SRC
+  windowSpaces: process.env.WINDOW_SPACES_SRC && existsSync(resolve(process.env.WINDOW_SPACES_SRC))
     ? resolve(process.env.WINDOW_SPACES_SRC)
     : existsSync(join(__dirname, "../../WindowSpaces/src/shared"))
       ? join(__dirname, "../../WindowSpaces/src/shared")
-      : join(__dirname, "../../ObsidianWindowSpaces/src/shared"),
-  folderSpaces: join(__dirname, "../src/shared"),
+      : existsSync(join(__dirname, "../../ObsidianWindowSpaces/src/shared"))
+        ? join(__dirname, "../../ObsidianWindowSpaces/src/shared")
+        : localShared,
+  folderSpaces: localShared,
   
   // 來源與目標檔案必須保持完整且 byte-identical。
   sharedFiles: [
@@ -114,7 +119,7 @@ async function main() {
   
   // 顯示摘要
   console.log("\n📊 同步摘要：");
-  console.log(`   來源：WindowSpaces/src/shared/`);
+  console.log(`   來源：${PATHS.windowSpaces}`);
   console.log(`   目標：FolderSpaces/src/shared/`);
   console.log(`   成功：${successCount}/${PATHS.sharedFiles.length} 個檔案`);
   console.log(`   時間：${new Date().toISOString()}`);
