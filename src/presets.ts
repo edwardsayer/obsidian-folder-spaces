@@ -100,3 +100,18 @@ export function applyPresetModes(preset: FolderSpacePreset, setters: FolderSpace
   setters.setDepthMode(state.depthMode);
   setters.setViewMode(state.viewMode);
 }
+
+/**
+ * 依據是否為子面板及是否啟用連動（Sync focus in same/new window）解析初始套用的 preset ID。
+ * 若未連動（或非子面板），一律套用 defaultPreset；僅在有父面板且啟用連動時才套用 defaultChildPreset。
+ */
+export function resolveInitialPresetId(options: {
+  parentPanelId?: string | null;
+  isSyncFocusEnabled: boolean;
+  defaultPreset: FolderSpacePresetId | "none";
+  defaultChildPreset: FolderSpacePresetId | "none";
+}): FolderSpacePresetId | "none" {
+  const useChildPreset = Boolean(options.parentPanelId) && options.isSyncFocusEnabled;
+  return useChildPreset ? options.defaultChildPreset : options.defaultPreset;
+}
+

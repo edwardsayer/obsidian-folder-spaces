@@ -273,8 +273,26 @@ export function getRelativePathToFolderSpace(filePath: string, folderPath: strin
   return filePath;
 }
 
-export function isHTMLElement(value: HTMLElement | undefined): value is HTMLElement {
-  return value?.instanceOf(HTMLElement) ?? false;
+export function isElement(value: unknown): value is Element {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const maybe = value as { instanceOf?: (type: unknown) => boolean; nodeType?: number };
+  if (typeof maybe.instanceOf === "function") {
+    return maybe.instanceOf(Element);
+  }
+  return maybe.nodeType === 1;
+}
+
+export function isHTMLElement(value: unknown): value is HTMLElement {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const maybe = value as { instanceOf?: (type: unknown) => boolean; nodeType?: number };
+  if (typeof maybe.instanceOf === "function") {
+    return maybe.instanceOf(HTMLElement);
+  }
+  return maybe.nodeType === 1;
 }
 
 export function getFolderSpaceTitle(

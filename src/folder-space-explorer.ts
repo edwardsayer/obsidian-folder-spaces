@@ -24,6 +24,7 @@ import {
   findToolbarButton,
   getFolderSpaceTitle,
   getRelativePathToFolderSpace,
+  isElement,
   isPathInsideFolder,
   makeNavigable,
   normalizeState,
@@ -2591,7 +2592,7 @@ function registerFlatRenameEditorOverride(view: PatchedExplorerView): void {
     (event: FocusEvent) => {
       const isFlatRendering = view.viewMode === "flat" || view.contentMode === "files";
       const target = event.target;
-      if (!isFlatRendering || !(target instanceof HTMLElement)) {
+      if (!isFlatRendering || !isHTMLElement(target)) {
         return;
       }
 
@@ -2677,7 +2678,7 @@ function followParentScopeOnFolderClick(view: PatchedExplorerView, event: MouseE
   }
 
   const target = event.target;
-  if (!(target instanceof Element)) {
+  if (!isElement(target)) {
     return;
   }
 
@@ -2772,7 +2773,7 @@ function blockParentToggleOnFolderNameClick(view: PatchedExplorerView, event: Mo
   }
 
   const target = event.target;
-  if (!(target instanceof Element) || target.closest(".collapse-icon")) {
+  if (!isElement(target) || target.closest(".collapse-icon")) {
     return;
   }
 
@@ -2810,16 +2811,6 @@ function registerLongPressDrillDown(view: PatchedExplorerView): void {
 
     const folderPath = resolveClickedFolderPath(view.navFileContainerEl, view.files, event as unknown as MouseEvent);
     if (!folderPath) {
-      clearTimer();
-      return;
-    }
-
-    const manager = view.bindingManager;
-    const child = manager?.getChildOf(view.panelId);
-    const hasFollowingChild = Boolean(child && child.isAlive() && child.followParent);
-
-    // 只有在有連動子面板時才需要啟動 long press 計時（無子面板時直接普通點擊即可下鑽）
-    if (!hasFollowingChild) {
       clearTimer();
       return;
     }
@@ -2876,7 +2867,7 @@ export function resolveClickedFolderPath(
   }
 
   const target = event.target;
-  if (!(target instanceof Element)) {
+  if (!isElement(target)) {
     return null;
   }
 
@@ -2985,7 +2976,7 @@ function openFileFromFolderSpace(view: PatchedExplorerView, event: MouseEvent): 
   }
 
   const target = event.target;
-  if (!(target instanceof Element)) {
+  if (!isElement(target)) {
     return;
   }
 
@@ -3066,14 +3057,19 @@ function resolveFileOpenTargetLeaf(view: PatchedExplorerView): WorkspaceLeaf | n
     return createTabInLastSplit(workspace, workspace.rootSplit, () => workspace.getLeaf("tab"));
   }
 
-  // 2. 如果 Folder Space 位於 Content Area（主視窗或 Popout 視窗）
+  // 檢查是否在 Popout 視窗中
+  const currentWin = getWindowOfLeaf(currentLeaf);
+  const isPopout = isPopoutWindow(currentWin);
+  const popoutEngine = view.popoutLayoutEngine;
+
+  // 2. 如果 Folder Space 位於 Popout 視窗的側欄欄位中
+  if (isPopout && popoutEngine && currentWin && popoutEngine.isLeafInSideColumn(currentWin, currentLeaf)) {
+    return popoutEngine.getCenterLeafSync(currentWin);
+  }
+
+  // 3. 如果 Folder Space 位於 Content Area（主視窗或 Popout 視窗）
   const tracker = getPanelActivityTracker(workspace);
   const currentTabGroup = currentLeaf.parent;
-
-  // 檢查是否在 Popout 視窗中
-  const currentWin = currentLeaf.getContainer()?.win;
-  const isPopout = currentWin && currentWin !== window;
-  const popoutEngine = view.popoutLayoutEngine;
 
   const candidateLeaves: WorkspaceLeaf[] = [];
   workspace.iterateAllLeaves((leaf) => {

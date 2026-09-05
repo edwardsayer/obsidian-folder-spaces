@@ -8,7 +8,8 @@ import {
   matchPreset,
   presetToState,
   resolvePresetId,
-  resolveCascadeParentPresetId
+  resolveCascadeParentPresetId,
+  resolveInitialPresetId
 } from "../src/presets.js";
 
 test("preset list is ordered as expected with explorer first", () => {
@@ -157,3 +158,49 @@ test("resolveCascadeParentPresetId validates folder-only presets", () => {
   assert.equal(resolveCascadeParentPresetId("bogus"), "navigate");
   assert.equal(resolveCascadeParentPresetId("bogus", "columns"), "columns");
 });
+
+test("resolveInitialPresetId falls back to defaultPreset if sync focus is disabled", () => {
+  // 當未連動時（isSyncFocusEnabled: false），無論是否有父面板，一律套用 defaultPreset
+  assert.equal(
+    resolveInitialPresetId({
+      parentPanelId: "parent-panel-1",
+      isSyncFocusEnabled: false,
+      defaultPreset: "explorer",
+      defaultChildPreset: "contents"
+    }),
+    "explorer"
+  );
+
+  // 當有父面板且連動啟用時（isSyncFocusEnabled: true），套用 defaultChildPreset
+  assert.equal(
+    resolveInitialPresetId({
+      parentPanelId: "parent-panel-1",
+      isSyncFocusEnabled: true,
+      defaultPreset: "explorer",
+      defaultChildPreset: "contents"
+    }),
+    "contents"
+  );
+
+  // 當非子面板（無 parentPanelId），無論連動設定為何，皆套用 defaultPreset
+  assert.equal(
+    resolveInitialPresetId({
+      parentPanelId: null,
+      isSyncFocusEnabled: true,
+      defaultPreset: "explorer",
+      defaultChildPreset: "contents"
+    }),
+    "explorer"
+  );
+
+  assert.equal(
+    resolveInitialPresetId({
+      parentPanelId: undefined,
+      isSyncFocusEnabled: false,
+      defaultPreset: "navigate",
+      defaultChildPreset: "files"
+    }),
+    "navigate"
+  );
+});
+
