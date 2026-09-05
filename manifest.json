@@ -1,7 +1,7 @@
 {
 	"id": "folder-spaces",
 	"name": "Folder Spaces",
-	"version": "0.3.0",
+	"version": "0.4.0",
 	"minAppVersion": "1.7.2",
 	"description": "Create folder-scoped File Explorer spaces in sidebars, editor tabs, and popout windows.",
 	"author": "edwardsayer",
