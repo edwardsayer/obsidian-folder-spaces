@@ -31,7 +31,7 @@ export interface FolderPathChangeOptions {
 
 export function generatePanelId(): string {
   try {
-    const uuid = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto?.randomUUID?.();
+    const uuid = (window as { crypto?: { randomUUID?: () => string } }).crypto?.randomUUID?.();
     if (uuid) {
       return uuid;
     }

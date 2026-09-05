@@ -435,11 +435,10 @@ const SIMPLIFIED_CHINESE: LocaleTable = {
 };
 
 function safeGetLanguage(): string {
-  if (
-    typeof globalThis !== "undefined" &&
-    typeof (globalThis as unknown as { getLanguage?: () => string }).getLanguage === "function"
-  ) {
-    return (globalThis as unknown as { getLanguage: () => string }).getLanguage();
+  // INTERNAL API: getLanguage - Obsidian 全域 API（window 上）；測試環境無 window 時 fallback en。
+  const api = typeof window !== "undefined" ? (window as unknown as { getLanguage?: () => string }) : undefined;
+  if (api && typeof api.getLanguage === "function") {
+    return api.getLanguage();
   }
   return "en";
 }

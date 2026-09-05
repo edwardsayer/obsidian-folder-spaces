@@ -471,7 +471,7 @@ export default class FolderSpacesPlugin extends Plugin {
       this.applyChildBinding(parentPanelId ?? null, existingLeaf);
       await ctx.workspace.revealLeaf(existingLeaf);
       ctx.workspace.setActiveLeaf(existingLeaf, { focus: true });
-      await ctx.workspace.requestSaveLayout();
+      ctx.workspace.requestSaveLayout();
       return existingLeaf;
     }
 
@@ -496,7 +496,7 @@ export default class FolderSpacesPlugin extends Plugin {
 
     await ctx.workspace.revealLeaf(leaf);
     ctx.workspace.setActiveLeaf(leaf, { focus: true });
-    await ctx.workspace.requestSaveLayout();
+    ctx.workspace.requestSaveLayout();
     // Bind before refreshing the header so a header update error can never
     // prevent the binding from being established.
     this.applyChildBinding(parentPanelId ?? null, leaf);
@@ -552,7 +552,7 @@ export default class FolderSpacesPlugin extends Plugin {
 
     await workspace.revealLeaf(folderSpaceLeaf);
     workspace.setActiveLeaf(folderSpaceLeaf, { focus: true });
-    await workspace.requestSaveLayout();
+    workspace.requestSaveLayout();
     refreshLeafHeader(folderSpaceLeaf);
     this.applyChildBinding(parentPanelId ?? null, folderSpaceLeaf);
     return folderSpaceLeaf;
@@ -632,7 +632,7 @@ export default class FolderSpacesPlugin extends Plugin {
       this.applyChildBinding(parentPanelId ?? null, existing);
       await workspace.revealLeaf(existing);
       workspace.setActiveLeaf(existing, { focus: true });
-      await workspace.requestSaveLayout();
+      workspace.requestSaveLayout();
       return existing;
     }
 
@@ -662,7 +662,7 @@ export default class FolderSpacesPlugin extends Plugin {
     makeNavigable(leaf.view);
     await workspace.revealLeaf(leaf);
     workspace.setActiveLeaf(leaf, { focus: true });
-    await workspace.requestSaveLayout();
+    workspace.requestSaveLayout();
     refreshLeafHeader(leaf);
     this.applyChildBinding(parentPanelId ?? null, leaf);
     return leaf;
@@ -823,7 +823,7 @@ export default class FolderSpacesPlugin extends Plugin {
     }
     binding.attach();
     this.panelBindingManager.register(binding.handle);
-    this.windowActiveFileTracker.patchViewInstance(leaf.view as any);
+    this.windowActiveFileTracker.patchViewInstance(leaf.view);
   }
 
   /**
@@ -1092,7 +1092,7 @@ function refreshLeafHeader(leaf: WorkspaceLeaf): void {
 
 function getViewContainer(leaf: WorkspaceLeaf): HTMLElement | null {
   const view = leaf.view as View & { containerEl?: HTMLElement };
-  return view.containerEl instanceof HTMLElement ? view.containerEl : null;
+  return view.containerEl?.instanceOf(HTMLElement) ? view.containerEl : null;
 }
 
 function getDirectSplitChild(split: HTMLElement, element: HTMLElement): HTMLElement | null {

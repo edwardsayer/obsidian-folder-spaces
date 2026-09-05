@@ -15,7 +15,8 @@ import {
   pruneOrphanFolderSettings
 } from "../src/settings.js";
 
-(globalThis as { getIconIds?: () => string[] }).getIconIds = () => [
+// Node 測試環境無 window：以 globalThis 承載 mock，src 端以 typeof window 防禦探測。
+(globalThis as unknown as { getIconIds?: () => string[] }).getIconIds = () => [
   "lucide-folders",
   "lucide-rocket",
   "lucide-star",

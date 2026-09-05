@@ -179,19 +179,15 @@ function isValidViewIcon(iconName: string): boolean {
 }
 
 function getObsidianIconIds(): string[] {
-  if (
-    typeof globalThis !== "undefined" &&
-    typeof (globalThis as unknown as { getIconIds?: () => string[] }).getIconIds === "function"
-  ) {
-    return (globalThis as unknown as { getIconIds: () => string[] }).getIconIds();
+  // INTERNAL API: getIconIds - Obsidian 全域 API；
+  // Electron 中 window === globalThis，測試環境經 globalThis 注入 mock。
+  const api = typeof window !== "undefined"
+    ? (window as unknown as { getIconIds?: () => string[] })
+    : (globalThis as unknown as { getIconIds?: () => string[] });
+  if (typeof api.getIconIds === "function") {
+    return api.getIconIds();
   }
-
-  try {
-    const obsidianModule = require("obsidian") as { getIconIds?: () => string[] };
-    return typeof obsidianModule?.getIconIds === "function" ? obsidianModule.getIconIds() : [];
-  } catch {
-    return [];
-  }
+  return [];
 }
 
 function normalizeFolderIcons(data: unknown): Record<string, string> {
