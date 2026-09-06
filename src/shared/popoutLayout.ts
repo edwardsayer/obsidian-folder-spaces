@@ -785,7 +785,7 @@ export class PopoutLayoutEngine {
   }
 
   /** 回傳 container 所在的頂層欄位元素（root split 的 direct child）。 */
-  private getTopLevelColumnForContainer(container: HTMLElement): HTMLElement | null {
+  getTopLevelColumnForContainer(container: HTMLElement): HTMLElement | null {
     const rootEl = findRootSplitElement(container);
     if (!rootEl) return null;
     return getDirectChildOf(rootEl, container);
@@ -851,7 +851,32 @@ export class PopoutLayoutEngine {
   }
 
   /**
-   * 同步取得/建立位於 Popout 視窗「中央編輯區」的 WorkspaceLeaf。
+   * 判斷 leaf 是否可被一般檔案導航取代（未鎖定且 view 支援一般檔案導航）。
+   * 輔助視圖（如 outline, all-properties 等 navigation === false）不可被檔案開啟覆蓋。
+   */
+  canLeafAcceptNavigation(leaf: WorkspaceLeaf): boolean {
+    const isPinned = Boolean(
+      (leaf as unknown as ExtendedWorkspaceLeaf & { pinned?: boolean }).pinned ||
+        (leaf.getViewState() as { pinned?: boolean })?.pinned
+    );
+    if (isPinned) return false;
+    // INTERNAL API: WorkspaceLeaf.canNavigate - Obsidian 原生檢查：this.view.navigation && !this.pinned
+    if (typeof (leaf as unknown as { canNavigate?: () => boolean }).canNavigate === "function") {
+      return (leaf as unknown as { canNavigate: () => boolean }).canNavigate();
+    }
+    const view = leaf.view as { navigation?: boolean } | null;
+    if (view && typeof view.navigation === "boolean") {
+      return view.navigation;
+    }
+    return true;
+  }
+
+  /**
+   * 取得 Popout 視窗非側欄的中央編輯區目標 Leaf。
+   * 優先順序：
+   * 1. 既有中央編輯區：若目前 active tab 未被 pin 且支援檔案導航，回傳該 leaf 覆蓋其內容；
+   *    若目前 active tab 被 pin 或為輔助視圖（如 outline），在該 tabs 開新 tab。
+   * 2. 無中央編輯區：在第一個 column 右側垂直 split 建立新的頂層欄位。
    * 用於避免側欄觸發開啟檔案時覆蓋側欄 View。
    */
   getCenterLeafSync(win: Window, newLeaf?: boolean | string): WorkspaceLeaf {
@@ -864,17 +889,11 @@ export class PopoutLayoutEngine {
       if (!isNewTabRequested) {
         const children = (targetPane.tabs.children ?? []) as WorkspaceLeaf[];
         // 使用者預期：開檔落在「目前顯示（active）的 tab」，而非 tab 群組中的
-        // 第一個 unpinned tab。該 tab 被 pin 時才開新 tab，避免覆蓋使用者
-        // 目前正在看的內容或其他舊 tab。
+        // 第一個 unpinned tab。該 tab 被 pin 或不可接受一般導航時才開新 tab，
+        // 避免覆蓋輔助視圖（如 outline）或使用者目前鎖定的內容。
         const visibleLeaf = children.find((leaf) => this.isLeafVisibleInPane(leaf));
-        if (visibleLeaf) {
-          const isPinned = Boolean(
-            (visibleLeaf as unknown as ExtendedWorkspaceLeaf & { pinned?: boolean }).pinned ||
-              (visibleLeaf.getViewState() as { pinned?: boolean })?.pinned
-          );
-          if (!isPinned) {
-            return visibleLeaf;
-          }
+        if (visibleLeaf && this.canLeafAcceptNavigation(visibleLeaf)) {
+          return visibleLeaf;
         }
       }
       return this.createLeafInTabs(targetPane.tabs);
@@ -1041,6 +1060,73 @@ export class PopoutLayoutEngine {
   }
 
   /**
+   * 判斷欄位內是否包含 editor 型 view（markdown / pdf / canvas 等內容 view）。
+   * 當頂層欄位數小於需求欄位數時，包含編輯器的欄位絕對是中央內容區，不可被誤判為側欄。
+   */
+  columnContainsEditor(win: Window, columnEl: HTMLElement): boolean {
+    const editorViewTypes = new Set(["markdown", "pdf", "canvas", "excalidraw", "image", "audio", "video"]);
+    const leaves = this.getLeavesForWindow(win);
+    for (const leaf of leaves) {
+      const extLeaf = leaf as unknown as { containerEl?: HTMLElement };
+      const container = extLeaf.containerEl || (leaf.view as { containerEl?: HTMLElement } | null)?.containerEl;
+      if (container && typeof container.contains === "function" && columnEl.contains(container)) {
+        const type = leaf.getViewState?.()?.type;
+        if (type && editorViewTypes.has(type)) return true;
+      }
+    }
+    const match = columnEl.querySelector ? columnEl.querySelector(
+      ".markdown-source-view, .markdown-reading-view, .canvas-wrapper, .pdf-container, .excalidraw-wrapper"
+    ) : null;
+    return match !== null;
+  }
+
+  /**
+   * 判斷欄位內是否包含 sidebar 型 view（檔案樹、搜尋、書籤、大綱、屬性等輔助 view）。
+   */
+  columnContainsSidebarView(win: Window, columnEl: HTMLElement): boolean {
+    const sidebarViewTypes = new Set([
+      "file-explorer",
+      "folder-spaces-explorer",
+      "search",
+      "bookmarks",
+      "window-spaces-layouts",
+      "outline",
+      "all-properties",
+      "file-properties",
+      "tag",
+      "tags",
+      "backlink",
+      "backlinks",
+      "outgoing-link",
+      "graph",
+      "localgraph",
+      "sync",
+      "recent-files",
+      "notebook-navigator",
+      "notebook-navigator-folder-note-sidebar",
+      "agent-client-chat-view",
+      "agent-client-session-manager",
+      "explorer-view",
+    ]);
+    const leaves = this.getLeavesForWindow(win);
+    for (const leaf of leaves) {
+      const extLeaf = leaf as unknown as { containerEl?: HTMLElement };
+      const container = extLeaf.containerEl || (leaf.view as { containerEl?: HTMLElement } | null)?.containerEl;
+      if (container && typeof container.contains === "function" && columnEl.contains(container)) {
+        const type = leaf.getViewState?.()?.type || (leaf as unknown as { getViewType?: () => string }).getViewType?.();
+        if (type && sidebarViewTypes.has(type)) return true;
+      }
+    }
+    // DOM [data-type] 特徵檢查（避免子元件如 metadata-container 或 backlink-pane 誤判）
+    const leafContents = columnEl.querySelectorAll ? columnEl.querySelectorAll(".workspace-leaf-content") : [];
+    for (let i = 0; i < leafContents.length; i++) {
+      const dataType = leafContents[i].getAttribute("data-type");
+      if (dataType && sidebarViewTypes.has(dataType)) return true;
+    }
+    return false;
+  }
+
+  /**
    * 取得指定側的「物理側欄」頂層欄位元素（DOM 結構優先，display-independent）。
    *
    * 語意：主動/實體定位（open-in-sidebar、hide/show column、隱藏狀態 capture/apply）。
@@ -1081,6 +1167,33 @@ export class PopoutLayoutEngine {
         if (this.getTopLevelColumnElements(win).length < requiredColumns) return null;
       }
 
+      const topColumns = this.getTopLevelColumnElements(win);
+      const topCount = topColumns.length;
+      const activeBarCount = (configuredSides.left ? 1 : 0) + (configuredSides.right ? 1 : 0);
+      const minRequired = activeBarCount + 1;
+
+      // 嚴格遵守垂直 split 的欄位數 >= activity bar 個數 + 1
+      if (topCount < minRequired) {
+        // 欄位數不足：若該側邊緣欄位只包含純編輯器 view（無任何側欄 view），它必定是中央內容區，不是側欄
+        if (this.columnContainsEditor(win, edge) && !this.columnContainsSidebarView(win, edge)) return null;
+
+        if (side === "left") {
+          const isLeft = edge.classList.contains("mod-left-split") || !!edge.querySelector(".mod-left-split");
+          const otherEdge = topColumns[topCount - 1];
+          const otherIsRight = otherEdge && (otherEdge.classList.contains("mod-right-split") || !!otherEdge.querySelector(".mod-right-split"));
+          if (otherIsRight && !isLeft) return null;
+          if (isLeft) return edge;
+          return otherIsRight ? null : edge;
+        } else {
+          const isRight = edge.classList.contains("mod-right-split") || !!edge.querySelector(".mod-right-split");
+          const otherEdge = topColumns[0];
+          const otherIsLeft = otherEdge && (otherEdge.classList.contains("mod-left-split") || !!otherEdge.querySelector(".mod-left-split"));
+          if (otherIsLeft && !isRight) return null;
+          if (isRight) return edge;
+          return otherIsLeft ? null : edge;
+        }
+      }
+
       // 物理側欄標記優先：邊緣欄位（或其內部容器/tabs）仍帶該側 sidebar 標記即代表該側 sidebar 仍然存在。
       const isSidebarForSide =
         side === "left"
@@ -1088,9 +1201,8 @@ export class PopoutLayoutEngine {
           : (edge.classList.contains("mod-right-split") || !!edge.querySelector(".mod-right-split"));
       if (isSidebarForSide) return edge;
 
-      // 正常運作狀態（非新開啟該側）：雙側皆開啟或單側開啟時，頂層需 ≥ 2 欄才能與對側或內容區共存
-      const topCount = this.getTopLevelColumnElements(win).length;
-      if (topCount >= 2) return edge;
+      // 正常運作狀態（非新開啟該側）：頂層需 ≥ minRequired 欄才能與對側或內容區共存
+      if (topCount >= minRequired) return edge;
       return null;
     }
     return isSidebarColumnElement(edge) ? edge : null;
