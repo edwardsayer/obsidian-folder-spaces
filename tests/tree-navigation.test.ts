@@ -521,12 +521,16 @@ test("3-zone click dispatch correctly discriminates Chevron, Name, and Row backg
   type ClickAction = "toggle" | "open-note" | "cascade" | "drill-down";
 
   const dispatchClick = (options: {
-    zone: "chevron" | "name" | "row";
+    zone: "chevron" | "terminal-dot" | "name" | "row";
     hasFolderNote: boolean;
     hasFollowingChild: boolean;
   }): ClickAction => {
     if (options.zone === "chevron") {
       return "toggle";
+    }
+    // 端點資料夾的小方點（chevron 位置被 CSS 換成的 ▫）等同 Row 背景點擊
+    if (options.zone === "terminal-dot") {
+      return options.hasFollowingChild ? "cascade" : "drill-down";
     }
     if (options.zone === "name") {
       if (options.hasFolderNote) {
@@ -548,6 +552,13 @@ test("3-zone click dispatch correctly discriminates Chevron, Name, and Row backg
   assert.equal(dispatchClick({ zone: "chevron", hasFolderNote: false, hasFollowingChild: false }), "toggle");
   assert.equal(dispatchClick({ zone: "chevron", hasFolderNote: true, hasFollowingChild: false }), "toggle");
   assert.equal(dispatchClick({ zone: "chevron", hasFolderNote: true, hasFollowingChild: true }), "toggle");
+
+  // 1b. Terminal-dot (▫) clicks: behave like Row background, never native toggle
+  //     (single panel drills down, twin panel cascades)
+  assert.equal(dispatchClick({ zone: "terminal-dot", hasFolderNote: false, hasFollowingChild: false }), "drill-down");
+  assert.equal(dispatchClick({ zone: "terminal-dot", hasFolderNote: true, hasFollowingChild: false }), "drill-down");
+  assert.equal(dispatchClick({ zone: "terminal-dot", hasFolderNote: false, hasFollowingChild: true }), "cascade");
+  assert.equal(dispatchClick({ zone: "terminal-dot", hasFolderNote: true, hasFollowingChild: true }), "cascade");
 
   // 2. Name clicks:
   // - With Folder Note: open-note

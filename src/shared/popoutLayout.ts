@@ -1120,7 +1120,7 @@ export class PopoutLayoutEngine {
     // DOM [data-type] 特徵檢查（避免子元件如 metadata-container 或 backlink-pane 誤判）
     const leafContents = columnEl.querySelectorAll ? columnEl.querySelectorAll(".workspace-leaf-content") : [];
     for (let i = 0; i < leafContents.length; i++) {
-      const dataType = leafContents[i].getAttribute("data-type");
+      const dataType = leafContents[i]?.getAttribute("data-type");
       if (dataType && sidebarViewTypes.has(dataType)) return true;
     }
     return false;

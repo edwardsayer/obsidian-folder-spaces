@@ -21,7 +21,7 @@ Desktop only. Requires Obsidian **1.7.2+**.
 - [Visual Showcase](#-visual-showcase)
 - [Features](#features)
 - [View Presets Reference](#view-presets-reference)
-- [Cascading Panel Binding](#cascading-panel-binding)
+- [Cascading Panel Binding & In-place Drill-down](#cascading-panel-binding--in-place-drill-down)
 - [Installation](#-installation)
 - [Usage & Quick Reference](#usage--quick-reference)
 - [Use Cases & Workflows](#use-cases--workflows)
@@ -120,7 +120,7 @@ Folder Spaces provides seven named presets combining **View Mode**, **Depth Limi
 
 ---
 
-## Cascading Panel Binding
+## Cascading Panel Binding & In-place Drill-down
 
 Chain folder contexts across panels by linking Folder Space panels into a `Parent → Child → Grandchild` cascade:
 
@@ -151,12 +151,32 @@ flowchart LR
 
 Folder Space splits folder rows into three distinct hit zones to ensure predictable interaction:
 
-| Hit Target | Single Panel (Follow OFF) | Dual Panel (Child Following) | Behavior Notes |
+| Hit Target | Single / Terminal Panel (Follow OFF or No Child) | Dual Panel (Child Following) | Behavior Notes |
 | :--- | :--- | :--- | :--- |
 | **Chevron Arrow** | Toggle folder expand / collapse | Toggle folder expand / collapse | Always preserves parent tree state. |
-| **Folder Name** | Open Folder Note (if present) / Toggle | Focus / navigate child panel | If Folder Note exists, opens note (with hover underline indicator). |
-| **Row Background** | Drill-down in place | Focus / navigate child panel | Immediate navigation without expanding tree. |
-| **Long Press (450ms)** | Drill-down into folder | Drill-down into folder | In-place root change without touching child panel. |
+| **Folder Name** | Open Folder Note (if present) / Toggle | Focus / navigate child panel | If Folder Note exists, opens note (with persistent underline indicator). Otherwise toggles expand/collapse in single panel, or navigates child in dual panel. |
+| **Row Background** | Drill-down in place | Focus / navigate child panel | Re-scopes panel root immediately; navigates child panel in dual-panel mode. |
+| **Long Press (450ms)** | Drill-down into folder | Drill-down into folder | In-place root change directly in the active panel without affecting child panel or layout. |
+
+### In-place Drill-down & Use Cases
+
+**In-place Drill-down** is the core navigation mechanism that lets an active panel **temporarily re-scope its root path to a subfolder** without opening a new tab or splitting new panes:
+
+- **How It Works**:
+  - **Instant Scope Transition**: Clicking the empty row background of a folder in a terminal or standalone panel (or long-pressing 450ms on any panel) immediately re-scopes the panel to that folder and automatically applies the child preset (e.g. switching to `Contents` flat view to list all contents).
+  - **History Stack & Dynamic Back Button**: Every drill-down saves the previous folder path and view configuration to a drill-down history stack (`DrillDownStack`). The left icon in the header dynamically turns into a **"← Go up" back button**.
+  - **Lossless Recovery**: Clicking the `←` back button pops the stack, returning to the previous folder level and restoring the earlier preset and view settings. Once back to the root level, the icon restores to the regular folder or link icon. You can also click the header title to pick any new folder.
+
+#### Typical Use Cases
+
+1. **Terminal Panels in a Cascade**
+   - In a `Parent → Middle → Terminal` cascading chain, the terminal panel (e.g. `Files` or `Contents`) is the end of the line with no further child panel attached.
+   - When encountering a subfolder within the terminal panel, **there is no need to split another pane and clutter the screen**. Simply click the folder's row background to drill into it in-place; click the `←` arrow in the header when done to return.
+2. **Single / Standalone Panels**
+   - When using a single Folder Space in the sidebar or a popout window without child panel binding, it serves as a lightweight, focused file navigator.
+   - Clicking folder backgrounds lets you dive deeper level-by-level like macOS Finder column drill-down or browser navigation, keeping the interface uncluttered without expanding large, messy folder trees.
+3. **Layout-Preserving In-Place Inspection (Long Press 450ms)**
+   - When working in a parent panel linked to a child panel, if you want to quickly inspect a subfolder **without displacing the child panel's active context**, long-press for 450ms. The parent panel will drill down locally without triggering or interrupting the child panel.
 
 ---
 

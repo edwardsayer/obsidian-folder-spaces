@@ -2640,9 +2640,11 @@ function registerFileOpenOverride(view: PatchedExplorerView): void {
  *   interfered with.
  *
  * Both are gated on a bound child with its "sync focus with parent panel"
- * toggle ON. A click on the collapse chevron (`.collapse-icon`) still toggles
- * the parent and never drives the child; modifier clicks and clicks outside
- * this panel's tree keep their native behavior.
+ * toggle ON. A click on a real collapse chevron (`.collapse-icon`) still toggles
+ * the parent and never drives the child; an endpoint folder's terminal dot (the
+ * chevron spot restyled as a small square on `.is-terminal-folder` rows) is
+ * treated like a row-background click and drives the child. Modifier clicks and
+ * clicks outside this panel's tree keep their native behavior.
  */
 let lastLongPressTriggeredTime = 0;
 
@@ -2682,8 +2684,10 @@ function followParentScopeOnFolderClick(view: PatchedExplorerView, event: MouseE
     return;
   }
 
-  // ① 點擊 Chevron 箭頭：交由原生或自訂開合處理，不下傳亦不下鑽
-  if (target.closest(".collapse-icon")) {
+  // ① 點擊 Chevron 箭頭：交由原生或自訂開合處理，不下傳亦不下鑽。
+  //    例外：端點資料夾（`.is-terminal-folder`）的 chevron 已以 CSS 換成
+  //    裝飾性小方點，不再是開合控件——點擊它等同點擊 Row 背景（分支③）。
+  if (target.closest(".collapse-icon") && !isTerminalFolderDotClick(target)) {
     return;
   }
 
@@ -2773,7 +2777,14 @@ function blockParentToggleOnFolderNameClick(view: PatchedExplorerView, event: Mo
   }
 
   const target = event.target;
-  if (!isElement(target) || target.closest(".collapse-icon")) {
+  if (!isElement(target)) {
+    return;
+  }
+
+  // 真實 chevron 保留原生 toggle；端點資料夾的小方點（`.is-terminal-folder`
+  // 內被 CSS 取代的 `.collapse-icon`）則與 Row 背景同等，需在此攔截以免
+  // 原生 explorer 對「無法展開」的資料夾重複觸發開合。
+  if (target.closest(".collapse-icon") && !isTerminalFolderDotClick(target)) {
     return;
   }
 
@@ -2845,12 +2856,28 @@ function registerLongPressDrillDown(view: PatchedExplorerView): void {
 }
 
 /**
+ * 判斷點擊目標是否落在「端點資料夾」的小方點（chevron 位置）上。
+ *
+ * Folder Spaces 會將端點資料夾（`.is-terminal-folder`，內部無可展開內容的
+ * 資料夾）原本的 chevron 箭頭以 CSS 換成裝飾性小方點。此時 chevron 位置已
+ * 不再是「開合切換」控件——點擊小方點應等同點擊該資料夾 Row 的背景／空白處
+ * （單面板下鑽、有連動子面板則下傳），而非保留原生 chevron 的 toggle 行為。
+ */
+export function isTerminalFolderDotClick(target: Element): boolean {
+  if (!target.closest(".collapse-icon")) {
+    return false;
+  }
+  return Boolean(target.closest(".tree-item-self.is-terminal-folder"));
+}
+
+/**
  * Resolves the path of the folder a plain left-click landed on inside a file
  * explorer tree. Shared between Folder Space panels (whose parent scope drives
  * a bound child) and the native File Explorer (which also acts as a parent
- * panel). Returns `null` for modifier clicks and for clicks on the collapse
+ * panel). Returns `null` for modifier clicks and for clicks on a real collapse
  * chevron (`.collapse-icon`), which keep their native toggle behavior and never
- * drive a child panel.
+ * drive a child panel. Clicks on an endpoint folder's terminal dot (the chevron
+ * spot restyled as a small square) are resolved like a row-background click.
  *
  * Obsidian writes the authoritative `data-path` attribute on the folder title
  * element itself, so it is preferred over the `files` DOM map — plugins that
@@ -2871,9 +2898,10 @@ export function resolveClickedFolderPath(
     return null;
   }
 
-  // A click on the collapse chevron toggles the parent's tree; it never drives
-  // a bound child panel.
-  if (target.closest(".collapse-icon")) {
+  // A click on a real collapse chevron toggles the parent's tree; it never
+  // drives a bound child panel. Endpoint folders' terminal dots are excluded:
+  // they act as a row-background click (drill-down / child propagation).
+  if (target.closest(".collapse-icon") && !isTerminalFolderDotClick(target)) {
     return null;
   }
 
