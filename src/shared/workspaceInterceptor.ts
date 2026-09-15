@@ -26,6 +26,10 @@ interface EventSubscription {
   ctx?: unknown;
 }
 
+type WorkspaceEventCallback =
+  | ((leaf: WorkspaceLeaf | null) => void)
+  | ((file: TFile | null) => void);
+
 interface InterceptableWorkspace {
   revealLeaf?: (leaf: WorkspaceLeaf) => Promise<void>;
   setActiveLeaf?: (leaf: WorkspaceLeaf, params?: { focus?: boolean }) => void;
@@ -139,12 +143,17 @@ function getActivePopoutWindow(state: InterceptorState): Window | null {
   };
   // 解構後必須以 call(workspace) 綁定 this，否則原生 iterateAllLeaves 內部
   // 的 this.iterateLeaves 會因 this 為 undefined 而拋錯，中斷 restore 流程。
-  workspace.iterateAllLeaves?.call(workspace, (leaf) => {
-    const win = getWindowOfLeaf(leaf);
-    if (!focusedPopout && win && isPopoutWindow(win) && hasWindowFocus(win)) {
-      focusedPopout = win;
-    }
-  });
+  const iterateAllLeaves = workspace.iterateAllLeaves;
+  if (typeof iterateAllLeaves === "function") {
+    Reflect.apply(iterateAllLeaves, workspace, [
+      (leaf: WorkspaceLeaf) => {
+        const win = getWindowOfLeaf(leaf);
+        if (!focusedPopout && win && isPopoutWindow(win) && hasWindowFocus(win)) {
+          focusedPopout = win;
+        }
+      },
+    ]);
+  }
   return focusedPopout;
 }
 
@@ -285,6 +294,15 @@ function hasOwnMethod(workspace: InterceptableWorkspace, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(workspace, key);
 }
 
+function invokeWorkspaceMethod<TResult>(
+  method: unknown,
+  receiver: unknown,
+  args: unknown[]
+): TResult | undefined {
+  if (typeof method !== "function") return undefined;
+  return Reflect.apply(method as (...args: unknown[]) => unknown, receiver, args) as TResult;
+}
+
 function restoreMethod(
   workspace: InterceptableWorkspace,
   key: string,
@@ -331,23 +349,23 @@ function install(state: InterceptorState): void {
 
   workspace.getLeftLeaf = function (split: boolean): WorkspaceLeaf | null {
     const original = state.originalMethods?.getLeftLeaf.value;
-    return routeSideLeaf(state, "left") ?? original?.call(workspace, split) ?? null;
+    return routeSideLeaf(state, "left") ?? invokeWorkspaceMethod(original, workspace, [split]) ?? null;
   };
   workspace.getRightLeaf = function (split: boolean): WorkspaceLeaf | null {
     const original = state.originalMethods?.getRightLeaf.value;
-    return routeSideLeaf(state, "right") ?? original?.call(workspace, split) ?? null;
+    return routeSideLeaf(state, "right") ?? invokeWorkspaceMethod(original, workspace, [split]) ?? null;
   };
   workspace.getLeaf = function (newLeaf?: boolean | string): WorkspaceLeaf {
     const original = state.originalMethods?.getLeaf.value;
     return (
       routeGetLeaf(state, newLeaf) ??
-      original?.call(workspace, newLeaf) ??
+      invokeWorkspaceMethod(original, workspace, [newLeaf]) ??
       (null as unknown as WorkspaceLeaf)
     );
   };
   workspace.getLeavesOfType = function (type: string): WorkspaceLeaf[] {
     const original = state.originalMethods?.getLeavesOfType.value;
-    const leaves = original?.call(workspace, type) ?? [];
+    const leaves = invokeWorkspaceMethod<WorkspaceLeaf[]>(original, workspace, [type]) ?? [];
     const activeWindow = getActivePopoutWindow(state);
     const participant = activeWindow ? getParticipantForWindow(state, activeWindow) : null;
     return participant ? leaves.filter((leaf) => getWindowOfLeaf(leaf) === activeWindow) : leaves;
@@ -360,7 +378,12 @@ function install(state: InterceptorState): void {
     const original = state.originalMethods?.ensureSideLeaf.value;
     return routeEnsureSideLeaf(state, viewType, side, options).then((leaf) => {
       if (leaf) return leaf;
-      if (original) return original.call(workspace, viewType, side, options);
+      if (original) {
+        return (
+          invokeWorkspaceMethod<Promise<WorkspaceLeaf>>(original, workspace, [viewType, side, options]) ??
+          Promise.reject(new Error("Workspace.ensureSideLeaf returned no leaf"))
+        );
+      }
       return Promise.reject(new Error("Workspace.ensureSideLeaf is unavailable"));
     });
   };
@@ -374,7 +397,7 @@ function install(state: InterceptorState): void {
         const containerEl = (ctx as { containerEl?: HTMLElement }).containerEl;
         const target = leaf ?? containerEl;
         if (target) {
-          if (!state.tracker.shouldProcessFileOpen(target as unknown as WorkspaceLeaf)) {
+          if (!state.tracker.shouldProcessFileOpen(target)) {
             return;
           }
         }
@@ -382,7 +405,7 @@ function install(state: InterceptorState): void {
     }
     const original = state.originalMethods?.tryTrigger.value;
     if (original) {
-      return original.apply(this, [subscription, args]);
+      invokeWorkspaceMethod(original, this, [subscription, args]);
     }
   };
 
@@ -393,7 +416,7 @@ function install(state: InterceptorState): void {
   workspace.getActiveFile = function (): TFile | null {
     if (isResolvingActiveFile) {
       const original = state.originalMethods?.getActiveFile.value;
-      return original ? original.call(workspace) : null;
+      return invokeWorkspaceMethod(original, workspace, []) ?? null;
     }
     isResolvingActiveFile = true;
     try {
@@ -403,7 +426,7 @@ function install(state: InterceptorState): void {
         if (winFile) return winFile;
       }
       const original = state.originalMethods?.getActiveFile.value;
-      return original ? original.call(workspace) : null;
+      return invokeWorkspaceMethod(original, workspace, []) ?? null;
     } finally {
       isResolvingActiveFile = false;
     }
@@ -411,7 +434,7 @@ function install(state: InterceptorState): void {
 
   // 監聽 Workspace 事件以持續更新視窗作用檔案追蹤
   const ws = state.app.workspace as unknown as {
-    on?: (name: string, cb: (...args: any[]) => void) => unknown;
+    on?: (name: string, cb: WorkspaceEventCallback) => unknown;
     offref?: (ref: unknown) => void;
   };
   if (ws && typeof ws.on === "function") {

@@ -68,9 +68,15 @@ export class FileExplorerCompatibilityBridge {
     }
 
     const sourceViews = this.getViewsOfType(FILE_EXPLORER_VIEW_TYPE);
-    const attributesByPath = sourceViews.length > 0 ? this.getSourceAttributesByPath(sourceViews) : new Map();
-    const iconsByPath = sourceViews.length > 0 ? this.getSourceIconsByPath(sourceViews) : new Map();
-    const headerAttributes = sourceViews.length > 0 ? this.getHeaderAttributes(sourceViews) : new Map();
+    const attributesByPath: Map<string, Map<string, string>> = sourceViews.length > 0
+      ? this.getSourceAttributesByPath(sourceViews)
+      : new Map<string, Map<string, string>>();
+    const iconsByPath: Map<string, HTMLElement | null> = sourceViews.length > 0
+      ? this.getSourceIconsByPath(sourceViews)
+      : new Map<string, HTMLElement | null>();
+    const headerAttributes: Map<string, string> = sourceViews.length > 0
+      ? this.getHeaderAttributes(sourceViews)
+      : new Map<string, string>();
 
     for (const targetView of targetViews) {
       this.mirrorFileItemAttributes(targetView, attributesByPath, iconsByPath);
@@ -181,7 +187,7 @@ export class FileExplorerCompatibilityBridge {
       }
     }
 
-    return new Map();
+    return new Map<string, string>();
   }
 
   private mirrorFileItemAttributes(
@@ -192,7 +198,7 @@ export class FileExplorerCompatibilityBridge {
     for (const [path, item] of Object.entries(targetView.fileItems ?? {})) {
       const el = getItemLabelElement(item);
       if (el) {
-        this.applyMirroredAttributes(el, attributesByPath.get(path) ?? new Map());
+        this.applyMirroredAttributes(el, attributesByPath.get(path) ?? new Map<string, string>());
       }
       mirrorIconElement(item, iconsByPath.get(path) ?? null);
     }

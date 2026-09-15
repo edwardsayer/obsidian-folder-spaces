@@ -267,7 +267,10 @@ function getDirectSplitChild(split: HTMLElement, element: HTMLElement): HTMLElem
 }
 
 function scheduleInitialSplitSizing(panelLeaf: WorkspaceLeaf, editorLeaf: WorkspaceLeaf, win: Window): void {
-  const raf = win.requestAnimationFrame?.bind(win) || window.requestAnimationFrame.bind(window);
+  const raf: typeof window.requestAnimationFrame =
+    typeof win.requestAnimationFrame === "function"
+      ? win.requestAnimationFrame.bind(win)
+      : window.requestAnimationFrame.bind(window);
   raf(() => {
     raf(() => {
       applyInitialSplitSizing(panelLeaf, editorLeaf);
@@ -313,6 +316,27 @@ function isSidebarColumnElement(columnEl: HTMLElement | null | undefined): boole
   return !!columnEl && columnEl.classList.contains("window-spaces-sidebar-column");
 }
 
+type ObsidianElementQuery = HTMLElement & {
+  find?: <T extends HTMLElement = HTMLElement>(selector: string) => T | null;
+  findAll?: <T extends HTMLElement = HTMLElement>(selector: string) => T[];
+};
+
+function findElement(root: HTMLElement, selector: string): HTMLElement | null {
+  const finder = (root as ObsidianElementQuery).find;
+  if (typeof finder === "function") {
+    return Reflect.apply(finder, root, [selector]);
+  }
+  return root.querySelector<HTMLElement>(selector);
+}
+
+function findElements(root: HTMLElement, selector: string): HTMLElement[] {
+  const finder = (root as ObsidianElementQuery).findAll;
+  if (typeof finder === "function") {
+    return Reflect.apply(finder, root, [selector]);
+  }
+  return Array.from(root.querySelectorAll<HTMLElement>(selector));
+}
+
 export class PopoutLayoutEngine {
   private app: App;
   private sidebarSidesByWindow = new WeakMap<Window, SidebarSides>();
@@ -323,7 +347,7 @@ export class PopoutLayoutEngine {
   }
 
   get workspace(): ExtendedWorkspace {
-    return this.app.workspace as unknown as ExtendedWorkspace;
+    return this.app.workspace;
   }
 
   /** 取得指定視窗中最新的 active leaf（限定該 window）。 */
@@ -533,7 +557,7 @@ export class PopoutLayoutEngine {
     const isParentNode = targetNode !== editorLeaf && Boolean((targetNode as WorkspaceParent).children);
     const before = side === "left" ? !isParentNode : isParentNode;
     // INTERNAL API: Workspace.createLeafBySplit - d.ts 有宣告但官方文件未記載（asar-findings #2：方向扁平化行為需實測驗證）
-    const panelLeaf = workspace.createLeafBySplit(targetNode as WorkspaceLeaf, "vertical", before);
+    const panelLeaf = workspace.createLeafBySplit(targetNode, "vertical", before);
 
     if (viewType) {
       await panelLeaf.setViewState({
@@ -639,7 +663,7 @@ export class PopoutLayoutEngine {
     const isParentNode = targetNode !== editorLeaf && Boolean((targetNode as WorkspaceParent).children);
     const before = side === "left" ? !isParentNode : isParentNode;
     // INTERNAL API: Workspace.createLeafBySplit - d.ts 有宣告但官方文件未記載（asar-findings #2）
-    const panelLeaf = workspace.createLeafBySplit(targetNode as WorkspaceLeaf, "vertical", before);
+    const panelLeaf = workspace.createLeafBySplit(targetNode, "vertical", before);
 
     scheduleInitialSplitSizing(panelLeaf, editorLeaf, win);
     return panelLeaf;
@@ -650,7 +674,7 @@ export class PopoutLayoutEngine {
     const children = (tabs?.children ?? []) as WorkspaceLeaf[];
     // INTERNAL API: Workspace.createLeafInParent - d.ts 有宣告但官方文件未記載（同 createLeafBySplit 的 leaf 層級建立行為）
     const leaf = workspace.createLeafInParent(
-      tabs as unknown as Parameters<typeof workspace.createLeafInParent>[0],
+      tabs,
       children.length
     );
     return leaf;
@@ -917,7 +941,7 @@ export class PopoutLayoutEngine {
     let centerLeaf: WorkspaceLeaf;
     try {
       // INTERNAL API: Workspace.createLeafBySplit - d.ts 有宣告但官方文件未記載（asar-findings #2：方向扁平化行為）
-      centerLeaf = workspace.createLeafBySplit(targetNode as WorkspaceLeaf, "vertical", false);
+      centerLeaf = workspace.createLeafBySplit(targetNode, "vertical", false);
     } catch {
       centerLeaf = null as unknown as WorkspaceLeaf;
     }
@@ -1074,9 +1098,10 @@ export class PopoutLayoutEngine {
         if (type && editorViewTypes.has(type)) return true;
       }
     }
-    const match = columnEl.querySelector ? columnEl.querySelector(
+    const match = findElement(
+      columnEl,
       ".markdown-source-view, .markdown-reading-view, .canvas-wrapper, .pdf-container, .excalidraw-wrapper"
-    ) : null;
+    );
     return match !== null;
   }
 
@@ -1118,9 +1143,9 @@ export class PopoutLayoutEngine {
       }
     }
     // DOM [data-type] 特徵檢查（避免子元件如 metadata-container 或 backlink-pane 誤判）
-    const leafContents = columnEl.querySelectorAll ? columnEl.querySelectorAll(".workspace-leaf-content") : [];
-    for (let i = 0; i < leafContents.length; i++) {
-      const dataType = leafContents[i]?.getAttribute("data-type");
+    const leafContents = findElements(columnEl, ".workspace-leaf-content");
+    for (const leafContent of leafContents) {
+      const dataType = leafContent.getAttribute("data-type");
       if (dataType && sidebarViewTypes.has(dataType)) return true;
     }
     return false;
@@ -1178,16 +1203,16 @@ export class PopoutLayoutEngine {
         if (this.columnContainsEditor(win, edge) && !this.columnContainsSidebarView(win, edge)) return null;
 
         if (side === "left") {
-          const isLeft = edge.classList.contains("mod-left-split") || !!edge.querySelector(".mod-left-split");
+          const isLeft = edge.classList.contains("mod-left-split") || !!findElement(edge, ".mod-left-split");
           const otherEdge = topColumns[topCount - 1];
-          const otherIsRight = otherEdge && (otherEdge.classList.contains("mod-right-split") || !!otherEdge.querySelector(".mod-right-split"));
+          const otherIsRight = otherEdge && (otherEdge.classList.contains("mod-right-split") || !!findElement(otherEdge, ".mod-right-split"));
           if (otherIsRight && !isLeft) return null;
           if (isLeft) return edge;
           return otherIsRight ? null : edge;
         } else {
-          const isRight = edge.classList.contains("mod-right-split") || !!edge.querySelector(".mod-right-split");
+          const isRight = edge.classList.contains("mod-right-split") || !!findElement(edge, ".mod-right-split");
           const otherEdge = topColumns[0];
-          const otherIsLeft = otherEdge && (otherEdge.classList.contains("mod-left-split") || !!otherEdge.querySelector(".mod-left-split"));
+          const otherIsLeft = otherEdge && (otherEdge.classList.contains("mod-left-split") || !!findElement(otherEdge, ".mod-left-split"));
           if (otherIsLeft && !isRight) return null;
           if (isRight) return edge;
           return otherIsLeft ? null : edge;
@@ -1197,8 +1222,8 @@ export class PopoutLayoutEngine {
       // 物理側欄標記優先：邊緣欄位（或其內部容器/tabs）仍帶該側 sidebar 標記即代表該側 sidebar 仍然存在。
       const isSidebarForSide =
         side === "left"
-          ? (edge.classList.contains("mod-left-split") || !!edge.querySelector(".mod-left-split"))
-          : (edge.classList.contains("mod-right-split") || !!edge.querySelector(".mod-right-split"));
+          ? (edge.classList.contains("mod-left-split") || !!findElement(edge, ".mod-left-split"))
+          : (edge.classList.contains("mod-right-split") || !!findElement(edge, ".mod-right-split"));
       if (isSidebarForSide) return edge;
 
       // 正常運作狀態（非新開啟該側）：頂層需 ≥ minRequired 欄才能與對側或內容區共存

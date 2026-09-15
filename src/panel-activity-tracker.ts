@@ -35,7 +35,7 @@ export class PanelActivityTracker {
     }
 
     const recentRootLeaf = workspace.getMostRecentLeaf(
-      workspace.rootSplit as WorkspaceParent
+      workspace.rootSplit
     );
     if (recentRootLeaf && !shouldIgnore(recentRootLeaf)) {
       this.touch(recentRootLeaf);

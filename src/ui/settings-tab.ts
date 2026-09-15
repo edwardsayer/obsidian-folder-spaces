@@ -189,13 +189,15 @@ export class FolderSpacesSettingTab extends PluginSettingTab {
     configure: (setting: Setting) => void
   ): Setting {
     const group = container as SettingGroupLike;
-    if (group && typeof group.addSetting === "function") {
+    if (typeof group.addSetting === "function") {
       let result: Setting | undefined;
       group.addSetting((setting) => {
         result = setting;
         configure(setting);
       });
-      return result as unknown as Setting;
+      if (result) {
+        return result;
+      }
     }
     const setting = new Setting(container as HTMLElement);
     configure(setting);
@@ -269,7 +271,7 @@ export class FolderSpacesSettingTab extends PluginSettingTab {
               .addOption("window", t("menuFolderSpacesWindow"))
               .setValue(value)
               .onChange(async (next) => {
-                apply(resolveOpenLocation(next as FolderSpaceLocation));
+                apply(resolveOpenLocation(next));
               });
           });
       });

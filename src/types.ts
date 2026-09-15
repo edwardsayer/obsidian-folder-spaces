@@ -34,12 +34,12 @@ export type InternalApp = App & {
 };
 
 /** 將 App 安全轉為 InternalApp（不做 runtime 檢查，呼叫端仍須防禦式存取）。 */
-export function toInternalApp(app: App | unknown): InternalApp {
+export function toInternalApp(app: unknown): InternalApp {
   return app as InternalApp;
 }
 
 /** 判斷 vault 是否允許顯示未支援檔案（INTERNAL API: vault.getConfig）。 */
-export function isShowUnsupportedFilesEnabled(app: App | unknown): boolean {
+export function isShowUnsupportedFilesEnabled(app: unknown): boolean {
   const config = toInternalApp(app).vault?.getConfig?.("showUnsupportedFiles");
   return config === true;
 }
@@ -48,7 +48,7 @@ export function isShowUnsupportedFilesEnabled(app: App | unknown): boolean {
  * 判斷副檔名是否已註冊檢視（INTERNAL API: viewRegistry.isExtensionRegistered）。
  * viewRegistry 不存在（如純 Node 測試環境）時回傳 null，由呼叫端 fallback。
  */
-export function isExtensionRegisteredByRegistry(app: App | unknown, ext: string): boolean | null {
+export function isExtensionRegisteredByRegistry(app: unknown, ext: string): boolean | null {
   const registry = toInternalApp(app).viewRegistry;
   if (registry && typeof registry.isExtensionRegistered === "function") {
     return registry.isExtensionRegistered(ext);

@@ -1121,7 +1121,7 @@ function getDirectSplitChild(split: HTMLElement, element: HTMLElement): HTMLElem
 function markPopoutSidebarColumn(leaf: WorkspaceLeaf): void {
   const container = getViewContainer(leaf);
   if (!container) return;
-  const rootEl = container.closest(".workspace-split.mod-root") as HTMLElement | null;
+  const rootEl = container.closest<HTMLElement>(".workspace-split.mod-root");
   if (!rootEl) return;
   const column = getDirectSplitChild(rootEl, container);
   if (column && !column.classList.contains("window-spaces-sidebar-column")) {
@@ -1141,4 +1141,3 @@ function getLocationIcon(location: FolderSpaceLocation): string {
       return "lucide-panels-top-left";
   }
 }
-

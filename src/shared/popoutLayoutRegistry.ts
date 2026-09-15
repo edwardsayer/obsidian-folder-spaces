@@ -164,13 +164,13 @@ function createStableProxy(state: PopoutLayoutRegistryState): PopoutLayoutEngine
       // Let test instrumentation or an explicitly attached property behave
       // normally without changing the delegate held by the registry.
       if (property in proxyTarget) {
-        return Reflect.get(proxyTarget, property, receiver);
+        return Reflect.get(proxyTarget, property, receiver) as unknown;
       }
 
       const delegate = state.activeEngine;
       if (!delegate) return undefined;
 
-      const value = Reflect.get(delegate, property, delegate);
+      const value: unknown = Reflect.get(delegate, property, delegate) as unknown;
       if (typeof value !== "function") return value;
 
       let wrapper = state.methodWrappers.get(property);
@@ -178,11 +178,15 @@ function createStableProxy(state: PopoutLayoutRegistryState): PopoutLayoutEngine
         wrapper = (...args: unknown[]) => {
           const current = state.activeEngine;
           if (!current) throw new Error("No active Popout layout engine candidate");
-          const currentMethod = Reflect.get(current, property, current);
+          const currentMethod: unknown = Reflect.get(current, property, current) as unknown;
           if (typeof currentMethod !== "function") {
             throw new Error(`Active Popout layout engine has no method '${String(property)}'`);
           }
-          return currentMethod.apply(current, args);
+          return Reflect.apply(
+            currentMethod as (...args: unknown[]) => unknown,
+            current,
+            args
+          );
         };
         state.methodWrappers.set(property, wrapper);
       }
@@ -201,7 +205,7 @@ function createStableProxy(state: PopoutLayoutRegistryState): PopoutLayoutEngine
           configurable: true,
           enumerable: false,
           writable: true,
-          value: Reflect.get(delegate, property, delegate),
+          value: Reflect.get(delegate, property, delegate) as unknown,
         };
       }
       return undefined;

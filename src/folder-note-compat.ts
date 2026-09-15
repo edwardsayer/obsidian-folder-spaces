@@ -1,4 +1,4 @@
-import type { App, TFolder } from "obsidian";
+import type { App } from "obsidian";
 import { isExtensionRegisteredByRegistry, isShowUnsupportedFilesEnabled } from "./types.js";
 
 /**
@@ -24,13 +24,20 @@ export interface FolderNotesPluginSettings {
   whitelistFolders?: unknown;
 }
 
+export interface FolderNoteFolderLike {
+  path: string;
+  name: string;
+  children?: Array<{ path: string; name: string; children?: unknown }>;
+  parent?: FolderNoteFolderLike | null;
+}
+
 /** 從 Obsidian plugin registry 讀取 folder-notes 的 settings；未安裝時回傳 null。 */
 export function readFolderNotesSettings(app: unknown): FolderNotesPluginSettings | null {
   const plugins = (app as { plugins?: { plugins?: Record<string, { settings?: unknown }> } })?.plugins
     ?.plugins;
   const plugin = plugins?.["folder-notes"];
   const settings = plugin?.settings;
-  return settings && typeof settings === "object" ? (settings as FolderNotesPluginSettings) : null;
+  return settings && typeof settings === "object" ? settings : null;
 }
 
 /** 解析 folder note 的結果。 */
@@ -96,10 +103,10 @@ function compareNoteExtensions(left: string, right: string): number {
  * 多檔符合時依副檔名優先序取第一個（.md 優先，其餘字母序）。
  * 其餘符合檔一律視為一般檔案（正常顯示）。
  */
-function resolveByConvention(folder: TFolder, app?: App): string | null {
+function resolveByConvention(folder: FolderNoteFolderLike, app?: App): string | null {
   const candidates: Array<{ path: string; ext: string }> = [];
-  for (const child of folder.children) {
-    if ("children" in child) {
+  for (const child of folder.children ?? []) {
+    if (child.children !== undefined) {
       continue;
     }
     const dotIndex = child.name.lastIndexOf(".");
@@ -131,7 +138,7 @@ function resolveByConvention(folder: TFolder, app?: App): string | null {
  * - `folderNoteType` 優先，其次 `supportedFileTypes` 依序嘗試。
  */
 function resolveByPluginSettings(
-  folder: TFolder,
+  folder: FolderNoteFolderLike,
   settings: FolderNotesPluginSettings
 ): string | null {
   const template = typeof settings.folderNoteName === "string" ? settings.folderNoteName : null;
@@ -160,14 +167,14 @@ function resolveByPluginSettings(
 
   // 驗證候選路徑存在：檢查 folder 自身與其父資料夾的 children。
   const candidates = [primaryType, ...supportedTypes].filter(Boolean);
-  const searchFolders: TFolder[] = [folder];
-  const parent = (folder as { parent?: TFolder | null }).parent;
+  const searchFolders: FolderNoteFolderLike[] = [folder];
+  const parent = folder.parent;
   if (parent && parent !== folder) {
     searchFolders.push(parent);
   }
   for (const type of candidates) {
     const notePath = `${pathPrefix}${fileName}${type}`;
-    if (searchFolders.some((f) => f.children.some((child) => child.path === notePath))) {
+    if (searchFolders.some((f) => (f.children ?? []).some((child) => child.path === notePath))) {
       return notePath;
     }
   }
@@ -184,7 +191,7 @@ function normalizeType(type: unknown): string | null {
 }
 
 /** 是否為 folder-notes 排除清單中的資料夾（disableFolderNote 或 whitelist 設為不顯示）。 */
-function isExcluded(folder: TFolder, settings: FolderNotesPluginSettings): boolean {
+function isExcluded(folder: FolderNoteFolderLike, settings: FolderNotesPluginSettings): boolean {
   const excluded = Array.isArray(settings.excludeFolders) ? settings.excludeFolders : [];
   for (const entry of excluded) {
     const path = (entry as { path?: unknown })?.path;
@@ -206,7 +213,7 @@ function isExcluded(folder: TFolder, settings: FolderNotesPluginSettings): boole
  * - plugin 存在：以 plugin settings 解析（A 層）；失敗時以 `has-folder-note` class 為輔助信號（C 層）。
  * - plugin 不存在：以 `資料夾名.*` 慣例解析（B 層）。
  */
-export function resolveFolderNote(folder: TFolder, options: ResolveFolderNoteOptions): FolderNoteInfo {
+export function resolveFolderNote(folder: FolderNoteFolderLike, options: ResolveFolderNoteOptions): FolderNoteInfo {
   const { folderNotesSettings, hasFolderNoteClass, app } = options;
 
   if (folderNotesSettings) {

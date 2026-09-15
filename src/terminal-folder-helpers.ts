@@ -1,10 +1,10 @@
-import type { App, TFolder } from "obsidian";
+import type { App } from "obsidian";
 import type { FolderNotesPluginSettings } from "./folder-note-compat.js";
 import { isNoteFileTypeSupported, resolveFolderNote } from "./folder-note-compat.js";
 
 export interface AbstractFileLike {
   path: string;
-  name?: string;
+  name: string;
   children?: AbstractFileLike[];
   isRoot?: () => boolean;
 }
@@ -65,7 +65,7 @@ export function isNativeTerminalFolder(
 
   const folderNotesSettings =
     options && "hideFolderNote" in options
-      ? (options as FolderNotesPluginSettings)
+      ? options
       : options && "folderNotesSettings" in options
       ? options.folderNotesSettings
       : null;
@@ -79,7 +79,7 @@ export function isNativeTerminalFolder(
 
   // 2. 檢查 Folder Note：若所有可展示項目僅包含該被隱藏的 folder note
   if (folderNotesSettings) {
-    const info = resolveFolderNote(folder as TFolder, {
+    const info = resolveFolderNote(folder, {
       folderNotesSettings,
       hasFolderNoteClass: false
     });

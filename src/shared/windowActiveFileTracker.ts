@@ -22,6 +22,19 @@ type GlobalNamespace = typeof window & {
   __obsidian_window_active_file_tracker_state_v1__?: WindowActiveFileTrackerState;
 };
 
+function isTFile(value: unknown): value is TFile {
+  if (!value || typeof value !== "object") return false;
+  const currentWindow = typeof window !== "undefined"
+    ? (window as unknown as { TFile?: { new (...args: never[]): TFile } })
+    : null;
+  const fileConstructor = currentWindow?.TFile;
+  if (typeof fileConstructor === "function") {
+    return value instanceof fileConstructor;
+  }
+  return "path" in value && "name" in value &&
+    typeof value.path === "string" && typeof value.name === "string";
+}
+
 export function getSharedActiveFileState(): WindowActiveFileTrackerState {
   const namespace = window as unknown as GlobalNamespace;
   let state = namespace.__obsidian_window_active_file_tracker_state_v1__;
@@ -73,8 +86,8 @@ export class WindowActiveFileTracker {
     }
     this.setLastActiveWindow(win);
     const view = leaf.view as { file?: unknown } | null | undefined;
-    if (view && typeof view === "object" && "file" in view && (view as { file: unknown }).file) {
-      this.setWindowActiveFile(win, (view as { file: TFile }).file);
+    if (view && typeof view === "object" && isTFile(view.file)) {
+      this.setWindowActiveFile(win, view.file);
     }
   }
 
@@ -114,8 +127,8 @@ export class WindowActiveFileTracker {
         : null;
       const view = activeLeaf?.view as { file?: unknown } | null;
       const leafFile = view?.file;
-      if (leafFile && typeof leafFile === "object" && "path" in leafFile) {
-        return leafFile as TFile;
+      if (isTFile(leafFile)) {
+        return leafFile;
       }
       return null;
     }
@@ -132,8 +145,8 @@ export class WindowActiveFileTracker {
     if (activeLeaf && getWindowOfLeaf(activeLeaf) === win) {
       const view = activeLeaf.view as { file?: unknown } | null;
       const leafFile = view?.file;
-      if (leafFile && typeof leafFile === "object" && "path" in leafFile) {
-        return leafFile as TFile;
+      if (isTFile(leafFile)) {
+        return leafFile;
       }
       return null;
     }
@@ -175,9 +188,9 @@ export class WindowActiveFileTracker {
     if (isWindowObject(viewLeafOrWindowOrEl)) {
       viewWindow = viewLeafOrWindowOrEl;
     } else if (isHTMLElement(viewLeafOrWindowOrEl)) {
-      viewWindow = (viewLeafOrWindowOrEl as HTMLElement).ownerDocument?.defaultView ?? null;
+      viewWindow = viewLeafOrWindowOrEl.ownerDocument?.defaultView ?? null;
     } else {
-      viewWindow = getWindowOfLeaf(viewLeafOrWindowOrEl as WorkspaceLeaf);
+      viewWindow = getWindowOfLeaf(viewLeafOrWindowOrEl);
     }
     if (!viewWindow || !this.state.lastActiveWindow) {
       return true;
@@ -199,19 +212,19 @@ export class WindowActiveFileTracker {
       return;
     }
     const original = view.onFileOpen;
+    const boundOriginal = original.bind(view);
     view.__sharedOriginalOnFileOpen = original;
     view._fsOriginalOnFileOpen = original;
-    const tracker = this;
-    view.onFileOpen = function (file: TFile | null) {
+    view.onFileOpen = (file: TFile | null) => {
       const targetLeaf =
         view.leaf ??
         (view.containerEl
           ? ({ containerEl: view.containerEl } as unknown as WorkspaceLeaf)
           : null);
-      if (!tracker.shouldProcessFileOpen(targetLeaf)) {
+      if (!this.shouldProcessFileOpen(targetLeaf)) {
         return;
       }
-      return original.call(this, file);
+      return boundOriginal(file);
     };
     this.state.patchedViews.add(view);
   }

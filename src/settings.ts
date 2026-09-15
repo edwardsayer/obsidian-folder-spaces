@@ -180,11 +180,10 @@ function isValidViewIcon(iconName: string): boolean {
 
 function getObsidianIconIds(): string[] {
   // INTERNAL API: getIconIds - Obsidian 全域 API；
-  // Electron 中 window === globalThis，測試環境經 globalThis 注入 mock。
-  const api = typeof window !== "undefined"
-    ? (window as unknown as { getIconIds?: () => string[] })
-    : (globalThis as unknown as { getIconIds?: () => string[] });
-  if (typeof api.getIconIds === "function") {
+  // Electron 中優先使用目前視窗，避免跨 popout 視窗誤取全域物件。
+  type ObsidianIconApi = { getIconIds?: () => string[] };
+  const api = typeof window !== "undefined" ? (window as unknown as ObsidianIconApi) : null;
+  if (typeof api?.getIconIds === "function") {
     return api.getIconIds();
   }
   return [];
@@ -234,7 +233,7 @@ export function migrateFolderPathInSettings(
   }
 
   let changed = false;
-  const migrateMap = (map: Record<string, any> | undefined) => {
+  const migrateMap = <T>(map: Record<string, T> | undefined) => {
     if (!map) return;
     for (const key of Object.keys(map)) {
       const val = map[key];

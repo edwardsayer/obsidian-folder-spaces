@@ -2,6 +2,10 @@ import type { App, View, WorkspaceLeaf } from "obsidian";
 
 export const FOLDER_SPACES_VIEW_TYPE = "folder-spaces-explorer";
 
+function isNoArgFunction(value: unknown): value is () => unknown {
+  return typeof value === "function";
+}
+
 export interface FolderSpaceView extends View {
 	readonly isFolderSpace: true;
 	readonly folderPath: string | null;
@@ -40,9 +44,10 @@ export function isFolderSpaceView(target: unknown): boolean {
     return true;
   }
 
-  if (typeof view.getViewType === "function" && view.getViewType() === FOLDER_SPACES_VIEW_TYPE) {
-    return true;
-  }
+	const getViewType = view.getViewType;
+	if (isNoArgFunction(getViewType)) {
+		return getViewType() === FOLDER_SPACES_VIEW_TYPE;
+	}
 
   return false;
 }

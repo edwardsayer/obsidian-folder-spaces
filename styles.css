@@ -416,6 +416,7 @@
 .folder-spaces-compact-header .nav-folder-title[data-has-folder-note="true"] .nav-folder-title-content,
 .nav-folder-title[data-has-folder-note="true"] .nav-folder-title-content,
 .nav-folder-title-content.has-folder-note {
+  -webkit-text-decoration: underline;
   text-decoration: underline;
   -webkit-text-decoration-color: var(--text-faint);
   text-decoration-color: var(--text-faint);
@@ -429,6 +430,7 @@
 .folder-spaces-compact-header .nav-folder-title[data-has-folder-note="true"] .nav-folder-title-content:hover,
 .nav-folder-title[data-has-folder-note="true"] .nav-folder-title-content:hover,
 .nav-folder-title-content.has-folder-note:hover {
+  -webkit-text-decoration: underline;
   text-decoration: underline;
   -webkit-text-decoration-color: var(--text-accent);
   text-decoration-color: var(--text-accent);
@@ -526,4 +528,3 @@
   z-index: var(--layer-popover);
   pointer-events: none;
 }
-

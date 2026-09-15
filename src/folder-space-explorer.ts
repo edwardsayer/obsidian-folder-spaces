@@ -102,7 +102,7 @@ export interface FolderSpaceViewOptions {
   getFolderSortOrder?(folderPath: string): FolderSpaceSortOrder | null;
   setFolderSortOrder?(folderPath: string, order: FolderSpaceSortOrder): void | Promise<void>;
   setFolderIcon?(folderPath: string, icon: string): void | Promise<void>;
-  openSearchInWindow?(win: Window, query: string): Promise<WorkspaceLeaf>;
+  openSearchInWindow?(this: void, win: Window, query: string): Promise<WorkspaceLeaf>;
   bindingManager?: PanelBindingManager;
   onContextMenuOpen?(leaf: WorkspaceLeaf): void;
   popoutLayoutEngine?: PopoutLayoutEngine;
@@ -253,7 +253,7 @@ interface PatchedExplorerView extends InternalExplorerView {
     contentMode: FolderSpaceContentMode;
   } | null;
   isAdaptiveParentActive?: boolean;
-  openSearchInWindow?: (win: Window, query: string) => Promise<WorkspaceLeaf>;
+  openSearchInWindow?: (this: void, win: Window, query: string) => Promise<WorkspaceLeaf>;
   addAction?(icon: string, title: string, callback: (evt: MouseEvent) => unknown): HTMLElement | null;
   getFolderNotesSettings(): FolderNotesPluginSettings | null;
   getAlwaysOpenInOtherPanel(): boolean;
@@ -387,7 +387,7 @@ export function makeDockable(view: View): boolean {
   }
 
   try {
-    const nativePrototype = Object.getPrototypeOf(view);
+    const nativePrototype = Object.getPrototypeOf(view) as object | null;
     if (!nativePrototype || nativePrototype === Object.prototype) {
       return false;
     }
@@ -398,7 +398,7 @@ export function makeDockable(view: View): boolean {
     for (
       let prototype: object | null = nativePrototype;
       prototype && prototype !== View.prototype && prototype !== Object.prototype;
-      prototype = Object.getPrototypeOf(prototype)
+      prototype = Object.getPrototypeOf(prototype) as object | null
     ) {
       for (const key of Reflect.ownKeys(prototype)) {
         if (key === "constructor" || copiedKeys.has(key)) {
@@ -569,7 +569,7 @@ function hasMethods(value: object, names: string[]): boolean {
   return names.every((name) => typeof Reflect.get(value, name) === "function");
 }
 
-function isObject(value: unknown): value is Record<string, any> {
+function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object";
 }
 
@@ -580,6 +580,24 @@ function isHTMLElement(value: unknown): value is HTMLElement {
     typeof value.appendChild === "function" &&
     typeof value.querySelector === "function"
   );
+}
+
+type InputLikeElement = HTMLElement & {
+  value: string;
+  setSelectionRange(start: number, end: number): void;
+  select(): void;
+};
+
+function isInputLikeElement(value: HTMLElement): value is InputLikeElement {
+  const candidate = value as HTMLElement & {
+    value?: unknown;
+    setSelectionRange?: unknown;
+    select?: unknown;
+  };
+  return value.matches("input") &&
+    typeof candidate.value === "string" &&
+    typeof candidate.setSelectionRange === "function" &&
+    typeof candidate.select === "function";
 }
 
 function patchExplorerView(
@@ -886,7 +904,7 @@ function patchExplorerView(
   };
 
   view.onCreateNewNoteClick = (event: MouseEvent) => {
-    createFolderSpaceFile(view, "file", event);
+    void createFolderSpaceFile(view, "file", event);
   };
 
   view.onFileContextMenu = (event: MouseEvent, file: TAbstractFile) => {
@@ -911,7 +929,7 @@ function patchExplorerView(
   };
 
   view.onCreateNewFolderClick = (event: MouseEvent) => {
-    createFolderSpaceFile(view, "folder", event);
+    void createFolderSpaceFile(view, "folder", event);
   };
 
   view.afterCreate = (file: TAbstractFile | null, newLeaf: boolean | PaneType) => {
@@ -1409,7 +1427,7 @@ function showSortOrderMenu(view: PatchedExplorerView, anchorEl: HTMLElement): vo
       item.setChecked(current.key === option.order.key && current.dir === option.order.dir);
       item.onClick(() => {
         if (view.folderPath !== null) {
-          view.setFolderSortOrder(view.folderPath, option.order);
+          void view.setFolderSortOrder(view.folderPath, option.order);
         }
         updateSortButtonIcon(view);
         view.requestSort();
@@ -2550,8 +2568,8 @@ function clearFlatItemInlineEditorPath(
       }
       view.flatRenameEditors?.add(editor);
 
-      if (editor.matches("input")) {
-        const input = editor as HTMLInputElement;
+      if (isInputLikeElement(editor)) {
+        const input = editor;
         input.value = file.name;
         if (file instanceof TFile && file.extension) {
           const dotIndex = file.name.lastIndexOf(".");
@@ -2820,7 +2838,7 @@ function registerLongPressDrillDown(view: PatchedExplorerView): void {
       return;
     }
 
-    const folderPath = resolveClickedFolderPath(view.navFileContainerEl, view.files, event as unknown as MouseEvent);
+    const folderPath = resolveClickedFolderPath(view.navFileContainerEl, view.files, event);
     if (!folderPath) {
       clearTimer();
       return;
