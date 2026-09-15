@@ -267,10 +267,10 @@ function getDirectSplitChild(split: HTMLElement, element: HTMLElement): HTMLElem
 }
 
 function scheduleInitialSplitSizing(panelLeaf: WorkspaceLeaf, editorLeaf: WorkspaceLeaf, win: Window): void {
-  const raf: typeof window.requestAnimationFrame =
+  const raf = (callback: FrameRequestCallback): number =>
     typeof win.requestAnimationFrame === "function"
-      ? win.requestAnimationFrame.bind(win)
-      : window.requestAnimationFrame.bind(window);
+      ? win.requestAnimationFrame(callback)
+      : window.requestAnimationFrame(callback);
   raf(() => {
     raf(() => {
       applyInitialSplitSizing(panelLeaf, editorLeaf);

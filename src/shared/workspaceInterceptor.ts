@@ -291,7 +291,7 @@ async function routeEnsureSideLeaf(
 }
 
 function hasOwnMethod(workspace: InterceptableWorkspace, key: string): boolean {
-  return Object.prototype.hasOwnProperty.call(workspace, key);
+  return Object.prototype.hasOwnProperty.call(workspace, key) === true;
 }
 
 function invokeWorkspaceMethod<TResult>(

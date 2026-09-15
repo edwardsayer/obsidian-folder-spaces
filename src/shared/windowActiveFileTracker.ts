@@ -212,7 +212,9 @@ export class WindowActiveFileTracker {
       return;
     }
     const original = view.onFileOpen;
-    const boundOriginal = original.bind(view);
+    const boundOriginal = (file: TFile | null): void => {
+      Reflect.apply(original, view, [file]);
+    };
     view.__sharedOriginalOnFileOpen = original;
     view._fsOriginalOnFileOpen = original;
     view.onFileOpen = (file: TFile | null) => {
@@ -224,7 +226,7 @@ export class WindowActiveFileTracker {
       if (!this.shouldProcessFileOpen(targetLeaf)) {
         return;
       }
-      return boundOriginal(file);
+      boundOriginal(file);
     };
     this.state.patchedViews.add(view);
   }
