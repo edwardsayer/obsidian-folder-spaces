@@ -1,4 +1,5 @@
 import { App, Plugin, PluginSettingTab, Setting, TFolder } from "obsidian";
+import type { SettingDefinitionItem } from "obsidian";
 import * as obsidian from "obsidian";
 
 import { t, presetLabel } from "../i18n.js";
@@ -48,8 +49,126 @@ export class FolderSpacesSettingTab extends PluginSettingTab {
     super(app, plugin);
   }
 
-  getSettingDefinitions(): unknown[] {
-    return [];
+  getSettingDefinitions(): SettingDefinitionItem[] {
+    return [
+      {
+        type: "group",
+        heading: t("settingsGeneralSection"),
+        items: [
+          {
+            name: t("settingsShowRibbonIconName"),
+            desc: t("settingsShowRibbonIconDesc"),
+            control: { type: "toggle", key: "showRibbonIcon" }
+          },
+          {
+            name: t("settingsAlwaysOpenInOtherPanelName"),
+            desc: t("settingsAlwaysOpenInOtherPanelDesc"),
+            control: { type: "toggle", key: "alwaysOpenInOtherPanel" }
+          }
+        ]
+      },
+      {
+        type: "group",
+        heading: t("settingsDefaultOpenLocationName"),
+        items: [
+          {
+            name: t("settingsDefaultOpenLocationMainWindow"),
+            desc: t("settingsDefaultOpenLocationMainWindowDesc"),
+            control: {
+              type: "dropdown",
+              key: "defaultOpenLocationMain",
+              options: this.getLocationOptions()
+            }
+          },
+          {
+            name: t("settingsDefaultOpenLocationPopoutWindow"),
+            desc: t("settingsDefaultOpenLocationPopoutWindowDesc"),
+            control: {
+              type: "dropdown",
+              key: "defaultOpenLocationPopout",
+              options: this.getLocationOptions()
+            }
+          }
+        ]
+      },
+      {
+        type: "group",
+        heading: t("presetSection"),
+        items: [
+          {
+            name: t("settingsDefaultPresetName"),
+            desc: t("settingsDefaultPresetDesc"),
+            control: { type: "dropdown", key: "defaultPreset", options: this.getPresetOptions() }
+          },
+          {
+            name: t("settingsDefaultChildPresetName"),
+            desc: t("settingsDefaultChildPresetDesc"),
+            control: { type: "dropdown", key: "defaultChildPreset", options: this.getPresetOptions() }
+          }
+        ]
+      },
+      {
+        type: "group",
+        heading: t("settingsCascadeSection"),
+        items: [
+          {
+            name: t("settingsAdaptiveCascadeParentName"),
+            desc: t("settingsAdaptiveCascadeParentDesc"),
+            control: { type: "toggle", key: "adaptiveCascadeParent" }
+          },
+          {
+            name: t("settingsCascadeParentPresetName"),
+            desc: t("settingsCascadeParentPresetDesc"),
+            control: {
+              type: "dropdown",
+              key: "cascadeParentPreset",
+              options: this.getPresetOptions(CASCADE_PARENT_PRESETS)
+            }
+          },
+          {
+            name: t("settingsSameWindowName"),
+            desc: t("settingsSameWindowDesc"),
+            control: { type: "toggle", key: "defaultFollowParentSameWindow" }
+          },
+          {
+            name: t("settingsNewWindowName"),
+            desc: t("settingsNewWindowDesc"),
+            control: { type: "toggle", key: "defaultFollowParentNewWindow" }
+          }
+        ]
+      },
+      {
+        name: t("settingsPresetsReferenceHeading"),
+        desc: t("settingsPresetsReferenceDesc")
+      }
+    ] satisfies SettingDefinitionItem[];
+  }
+
+  getControlValue(key: string): unknown {
+    return (this.plugin.settings as unknown as Record<string, unknown>)[key];
+  }
+
+  async setControlValue(key: string, value: unknown): Promise<void> {
+    const next = { ...this.plugin.settings, [key]: value };
+    await this.plugin.updateSettings(next);
+  }
+
+  private getLocationOptions(): Record<string, string> {
+    return {
+      "left-sidebar": t("menuFolderSpacesLeftSidebar"),
+      "right-sidebar": t("menuFolderSpacesRightSidebar"),
+      editor: t("menuFolderSpacesEditor"),
+      window: t("menuFolderSpacesWindow")
+    };
+  }
+
+  private getPresetOptions(
+    allowedPresetIds?: readonly FolderSpacePresetId[]
+  ): Record<string, string> {
+    const presets = allowedPresetIds
+      ? FOLDER_SPACE_PRESETS.filter((preset) => allowedPresetIds.includes(preset.id))
+      : FOLDER_SPACE_PRESETS;
+    return Object.fromEntries(presets.map((preset) => [preset.id, presetLabel(preset.id)]));
   }
 
   /** 建立 SettingGroup（若當前 Obsidian 版本支援）；不支援則回傳 null。 */

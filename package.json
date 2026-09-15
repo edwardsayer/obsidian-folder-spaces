@@ -17,7 +17,8 @@
 		"version": "node version-bump.mjs && git add manifest.json versions.json",
 		"sync:popout-engine": "node scripts/sync-popout-engine.mjs",
 		"sync:popout-engine:dry": "node scripts/sync-popout-engine.mjs --dry-run",
-		"sync:popout-engine:check": "node scripts/sync-popout-engine.mjs --check"
+		"sync:popout-engine:check": "node scripts/sync-popout-engine.mjs --check",
+		"new-log": "node ../.agents/skills/obsidian-session-log/scripts/new-log.mjs"
 	},
 	"keywords": [
 		"obsidian",
@@ -34,7 +35,8 @@
 		"@typescript-eslint/parser": "^8.0.0",
 		"esbuild": "^0.27.4",
 		"eslint": "^8.57.0",
-		"obsidian": "^1.12.3",
-		"typescript": "^5.9.3"
+		"obsidian": "^1.13.1",
+		"typescript": "^7.0.2",
+		"typescript-legacy-parser": "npm:typescript@5.9.3"
 	}
 }
