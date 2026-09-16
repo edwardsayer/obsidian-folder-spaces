@@ -1,7 +1,7 @@
 # Folder Spaces
 
 [![Release](https://img.shields.io/github/v/release/edwardsayer/obsidian-folder-spaces?style=flat-square)](https://github.com/edwardsayer/obsidian-folder-spaces/releases)
-[![Obsidian Min Version](https://img.shields.io/badge/Obsidian-1.7.2%2B-purple?style=flat-square)](https://obsidian.md)
+[![Obsidian Min Version](https://img.shields.io/badge/Obsidian-1.13.0%2B-purple?style=flat-square)](https://obsidian.md)
 [![Platform](https://img.shields.io/badge/Platform-Desktop%20only-lightgrey?style=flat-square)](#相容性與授權條款)
 [![License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE)
 
@@ -11,7 +11,7 @@
 
 語言：[English](README.md) | **繁體中文** | [簡體中文](README.zh-CN.md)
 
-僅支援桌面端 (Desktop only)。需要 Obsidian **1.7.2+**。
+僅支援桌面端 (Desktop only)。需要 Obsidian **1.13.0+**。
 
 ---
 
@@ -276,6 +276,6 @@ if (api) {
 
 ## 相容性與授權條款
 
-- **Obsidian 版本**: `1.7.2+`
+- **Obsidian 版本**: `1.13.0+`
 - **支援平台**: 僅限桌面版 (Windows, macOS, Linux)
 - **授權條款**: [MIT](LICENSE)

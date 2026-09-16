@@ -1,7 +1,7 @@
 # Folder Spaces
 
 [![Release](https://img.shields.io/github/v/release/edwardsayer/obsidian-folder-spaces?style=flat-square)](https://github.com/edwardsayer/obsidian-folder-spaces/releases)
-[![Obsidian Min Version](https://img.shields.io/badge/Obsidian-1.7.2%2B-purple?style=flat-square)](https://obsidian.md)
+[![Obsidian Min Version](https://img.shields.io/badge/Obsidian-1.13.0%2B-purple?style=flat-square)](https://obsidian.md)
 [![Platform](https://img.shields.io/badge/Platform-Desktop%20only-lightgrey?style=flat-square)](#compatibility--license)
 [![License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE)
 
@@ -11,7 +11,7 @@
 
 Language: **English** | [繁體中文](README.zh-TW.md) | [简体中文](README.zh-CN.md)
 
-Desktop only. Requires Obsidian **1.7.2+**.
+Desktop only. Requires Obsidian **1.13.0+**.
 
 ---
 
@@ -276,6 +276,6 @@ See [docs/api.md](docs/api.md) for the full API reference.
 
 ## Compatibility & License
 
-- **Obsidian version**: `1.7.2+`
+- **Obsidian version**: `1.13.0+`
 - **Platform**: Desktop only (Windows, macOS, Linux)
 - **License**: [MIT](LICENSE)
