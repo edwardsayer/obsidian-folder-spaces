@@ -33,10 +33,10 @@ type WorkspaceEventCallback =
 interface InterceptableWorkspace {
   revealLeaf?: (leaf: WorkspaceLeaf) => Promise<void>;
   setActiveLeaf?: (leaf: WorkspaceLeaf, params?: { focus?: boolean }) => void;
-  requestSaveLayout?: () => Promise<void>;
+  requestSaveLayout?: unknown;
   getLeftLeaf?: (split: boolean) => WorkspaceLeaf | null;
   getRightLeaf?: (split: boolean) => WorkspaceLeaf | null;
-  getLeaf?: (newLeaf?: boolean | string) => WorkspaceLeaf;
+  getLeaf?: unknown;
   getLeavesOfType?: (type: string) => WorkspaceLeaf[];
   ensureSideLeaf?: (
     viewType: string,
@@ -53,7 +53,7 @@ interface InterceptableWorkspace {
   __workspaceInterceptorInstalled?: boolean;
   __workspaceInterceptorOriginalGetLeftLeaf?: (split: boolean) => WorkspaceLeaf | null;
   __workspaceInterceptorOriginalGetRightLeaf?: (split: boolean) => WorkspaceLeaf | null;
-  __workspaceInterceptorOriginalGetLeaf?: (newLeaf?: boolean | string) => WorkspaceLeaf;
+  __workspaceInterceptorOriginalGetLeaf?: unknown;
   __workspaceInterceptorOriginalGetLeavesOfType?: (type: string) => WorkspaceLeaf[];
   __workspaceInterceptorOriginalEnsureSideLeaf?: (
     viewType: string,
@@ -97,14 +97,14 @@ function getState(app: App): InterceptorState {
   if (existing) {
     if (existing.participants.size === 0 && !existing.installed) {
       existing.app = app;
-      existing.workspace = app.workspace as unknown as InterceptableWorkspace;
+      existing.workspace = app.workspace;
     }
     return existing;
   }
 
   const state: InterceptorState = {
     app,
-    workspace: app.workspace as unknown as InterceptableWorkspace,
+    workspace: app.workspace,
     participants: new Map<string, WorkspaceInterceptorParticipant>(),
     tracker: new WindowActiveFileTracker(app),
     installed: false,
@@ -285,7 +285,12 @@ async function routeEnsureSideLeaf(
     state.workspace.setActiveLeaf?.(leaf, { focus: true });
   }
   if (!existing) {
-    await state.workspace.requestSaveLayout?.();
+    const saveResult = invokeWorkspaceMethod<unknown>(
+      state.workspace.requestSaveLayout,
+      state.workspace,
+      []
+    );
+    if (saveResult instanceof Promise) await saveResult;
   }
   return leaf;
 }
@@ -357,11 +362,11 @@ function install(state: InterceptorState): void {
   };
   workspace.getLeaf = function (newLeaf?: boolean | string): WorkspaceLeaf {
     const original = state.originalMethods?.getLeaf.value;
-    return (
-      routeGetLeaf(state, newLeaf) ??
-      invokeWorkspaceMethod(original, workspace, [newLeaf]) ??
-      (null as unknown as WorkspaceLeaf)
-    );
+    const routed = routeGetLeaf(state, newLeaf);
+    if (routed) return routed;
+    const restored = invokeWorkspaceMethod<WorkspaceLeaf>(original, workspace, [newLeaf]);
+    if (restored) return restored;
+    throw new Error("Workspace.getLeaf is unavailable");
   };
   workspace.getLeavesOfType = function (type: string): WorkspaceLeaf[] {
     const original = state.originalMethods?.getLeavesOfType.value;

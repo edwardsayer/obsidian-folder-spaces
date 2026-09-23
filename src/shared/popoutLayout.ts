@@ -334,7 +334,9 @@ function findElements(root: HTMLElement, selector: string): HTMLElement[] {
   if (typeof finder === "function") {
     return Reflect.apply(finder, root, [selector]);
   }
-  return Array.from(root.querySelectorAll<HTMLElement>(selector));
+  return typeof root.findAll === "function"
+    ? root.findAll(selector)
+    : Array.from(root.querySelectorAll<HTMLElement>(selector));
 }
 
 export class PopoutLayoutEngine {
@@ -938,12 +940,12 @@ export class PopoutLayoutEngine {
     const flexSnapshot = this.getTopLevelColumnElements(win).map(
       (col) => Number(col.style.flexGrow || getComputedStyle(col).flexGrow) || 0
     );
-    let centerLeaf: WorkspaceLeaf;
+    let centerLeaf: WorkspaceLeaf | null = null;
     try {
       // INTERNAL API: Workspace.createLeafBySplit - d.ts 有宣告但官方文件未記載（asar-findings #2：方向扁平化行為）
       centerLeaf = workspace.createLeafBySplit(targetNode, "vertical", false);
     } catch {
-      centerLeaf = null as unknown as WorkspaceLeaf;
+      // Fallback below selects an existing editor leaf when split creation is unavailable.
     }
     const topCountAfter = this.getTopLevelColumnElements(win).length;
     if (!centerLeaf || topCountAfter <= topCountBefore) {

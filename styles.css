@@ -443,6 +443,11 @@
   margin: 0;
 }
 
+/* 說明文字與下方規格表之間的間距（沿用原生尺寸變數） */
+.folder-spaces-presets-table-container .folder-spaces-presets-reference-desc {
+  margin-bottom: var(--size-4-2);
+}
+
 .folder-spaces-presets-table {
   width: 100%;
   border-collapse: collapse;

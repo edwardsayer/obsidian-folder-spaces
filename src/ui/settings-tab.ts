@@ -111,49 +111,61 @@ export class FolderSpacesSettingTab extends PluginSettingTab {
         ]
       },
       {
-        name: t("settingsPresetsReferenceHeading"),
-        desc: t("settingsPresetsReferenceDesc"),
-        render: (setting) => {
-          setting.settingEl.addClass("folder-spaces-presets-reference-setting");
-          setting.infoEl.remove();
-          setting.controlEl.remove();
+        type: "group",
+        heading: t("settingsPresetsReferenceHeading"),
+        items: [
+          {
+            name: t("settingsPresetsReferenceHeading"),
+            desc: t("settingsPresetsReferenceDesc"),
+            render: (setting) => {
+              setting.settingEl.addClass("folder-spaces-presets-reference-setting");
+              setting.infoEl.remove();
+              setting.controlEl.remove();
 
-          const tableContainer = setting.settingEl.createDiv({ cls: "folder-spaces-presets-table-container" });
-          const table = tableContainer.createEl("table", { cls: "folder-spaces-presets-table" });
-          const headerRow = table.createEl("thead").createEl("tr");
-          headerRow.createEl("th", { text: t("presetTableHeaderPreset") });
-          headerRow.createEl("th", { text: t("presetTableHeaderViewType") });
-          headerRow.createEl("th", { text: t("presetTableHeaderDepth") });
-          headerRow.createEl("th", { text: t("presetTableHeaderContent") });
+              const tableContainer = setting.settingEl.createDiv({
+                cls: "folder-spaces-presets-table-container"
+              });
+              tableContainer.createDiv({
+                cls: "setting-item-description folder-spaces-presets-reference-desc",
+                text: t("settingsPresetsReferenceDesc")
+              });
+              const table = tableContainer.createEl("table", { cls: "folder-spaces-presets-table" });
+              const headerRow = table.createEl("thead").createEl("tr");
+              headerRow.createEl("th", { text: t("presetTableHeaderPreset") });
+              headerRow.createEl("th", { text: t("presetTableHeaderViewType") });
+              headerRow.createEl("th", { text: t("presetTableHeaderDepth") });
+              headerRow.createEl("th", { text: t("presetTableHeaderContent") });
 
-          const tbody = table.createEl("tbody");
-          for (const preset of FOLDER_SPACE_PRESETS) {
-            const row = tbody.createEl("tr");
-            row.createEl("td", {
-              cls: "folder-spaces-preset-name",
-              text: presetLabel(preset.id)
-            });
-            row.createEl("td", {
-              text: preset.viewMode === "tree" ? t("actionTreeView") : t("actionFlatView")
-            });
-            row.createEl("td", {
-              text:
-                preset.depthMode === "one-level"
-                  ? t("depthModeOneLevel")
-                  : preset.depthMode === "two-level"
-                    ? t("depthModeTwoLevel")
-                    : t("depthModeAllLevel")
-            });
-            row.createEl("td", {
-              text:
-                preset.contentMode === "folders"
-                  ? t("contentModeFolders")
-                  : preset.contentMode === "files"
-                    ? t("contentModeFiles")
-                    : t("contentModeAll")
-            });
+              const tbody = table.createEl("tbody");
+              for (const preset of FOLDER_SPACE_PRESETS) {
+                const row = tbody.createEl("tr");
+                row.createEl("td", {
+                  cls: "folder-spaces-preset-name",
+                  text: presetLabel(preset.id)
+                });
+                row.createEl("td", {
+                  text: preset.viewMode === "tree" ? t("actionTreeView") : t("actionFlatView")
+                });
+                row.createEl("td", {
+                  text:
+                    preset.depthMode === "one-level"
+                      ? t("depthModeOneLevel")
+                      : preset.depthMode === "two-level"
+                        ? t("depthModeTwoLevel")
+                        : t("depthModeAllLevel")
+                });
+                row.createEl("td", {
+                  text:
+                    preset.contentMode === "folders"
+                      ? t("contentModeFolders")
+                      : preset.contentMode === "files"
+                        ? t("contentModeFiles")
+                        : t("contentModeAll")
+                });
+              }
+            }
           }
-        }
+        ]
       }
     ] satisfies SettingDefinitionItem[];
   }
