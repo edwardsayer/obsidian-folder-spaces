@@ -1,13 +1,15 @@
-// Integration test 共用 bridge：連 Obsidian debug port（預設 9223，與
+// Integration test 共用 bridge：連 Obsidian debug port（預設 9222，與
 // `npm run obsidian:debug` 及 opencode.json 的 chrome-devtools MCP 一致），
 // 選 target、執行 evaluate、斷言。零依賴（Node 20+ 全域 WebSocket）。
 //
 // 此 helper 改編自 ObsidianWindowSpaces `tests/integration/helper.mjs`
-// （同作者、MIT），僅調整預設 port 與環境變數名稱，另加
+// （同作者、MIT），僅調整環境變數名稱，另加
 // `waitForNewTarget`（配合開新 popout 的測試）。用法見 ./README.md。
 import http from "node:http";
 
-export const PORT = Number(process.env.FOLDER_SPACES_DEBUG_PORT || 9223);
+export const PORT = Number(
+  process.env.OBSIDIAN_DEBUG_PORT || process.env.FOLDER_SPACES_DEBUG_PORT || 9222
+);
 
 /** Folder Space 的自訂 view type（與 src/main.ts 註冊一致）。 */
 export const FS_VIEW_TYPE = "folder-spaces-explorer";

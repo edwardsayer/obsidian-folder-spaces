@@ -56,5 +56,5 @@ test("workspace 有 leaves 且可列舉（iterateAllLeaves）", async () => {
 });
 
 test("debug port 環境參數與 README 一致", () => {
-  console.log(`connecting to port ${PORT}（FOLDER_SPACES_DEBUG_PORT 或預設 9223）`);
+  console.log(`connecting to port ${PORT}（OBSIDIAN_DEBUG_PORT 或預設 9222）`);
 });

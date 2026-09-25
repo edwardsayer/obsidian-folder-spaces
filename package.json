@@ -14,7 +14,7 @@
 		"test:build": "node scripts/test-build.mjs",
 		"test:integration": "node --test \"tests/integration/*.test.mjs\"",
 		"deploy": "node ../tools/deploy.mjs",
-		"obsidian:debug": "node ../tools/obsidian-debug.mjs 9223",
+		"obsidian:debug": "node ../tools/obsidian-debug.mjs",
 		"probe": "node ../tools/probe.mjs",
 		"extract-asar": "node ../tools/extract-asar.mjs",
 		"version": "node version-bump.mjs && git add manifest.json versions.json",

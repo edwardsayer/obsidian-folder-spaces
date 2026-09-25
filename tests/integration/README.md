@@ -13,8 +13,9 @@
    npm run obsidian:debug
    ```
 
-   （預設 port **9223**，與 `opencode.json` 的 chrome-devtools MCP 一致；可用
-   `FOLDER_SPACES_DEBUG_PORT` 或 `npm run obsidian:debug -- <port>` 指定）
+   （預設 port **9222**，與 `opencode.json` 的 chrome-devtools MCP 一致；若要換 port
+   可加參數，例如 `npm run obsidian:debug -- 9223`，或用環境變數
+   `OBSIDIAN_DEBUG_PORT`）
 2. 確認 Obsidian 已載入 folder-spaces plugin（建議在測試 vault，例如
    `E:\vaults\quartz-vault` 執行）。
 
