@@ -132,11 +132,9 @@ export class WindowActiveFileTracker {
       }
       return null;
     }
-    const file = this.state.windowActiveFiles.get(win);
-    if (file !== undefined) {
-      return file;
-    }
-    // Fallback: check if the global active leaf belongs to this window
+    // Native setActiveLeaf updates the editor before the debounced
+    // active-leaf-change event. Prefer that live file over the previous
+    // cached note so lookups during a tab switch cannot lag one tab behind.
     // INTERNAL API: Workspace.activeLeaf (deprecated) - same rationale as above:
     // read view.file directly to avoid re-entering the getActiveFile hook.
     const activeLeaf = this.app?.workspace
@@ -148,8 +146,11 @@ export class WindowActiveFileTracker {
       if (isTFile(leafFile)) {
         return leafFile;
       }
-      return null;
     }
+    // Keep the last note for this window while a sidebar or another window
+    // has focus; that is when the per-window cache is needed.
+    const file = this.state.windowActiveFiles.get(win);
+    if (file !== undefined) return file;
     return null;
   }
 
