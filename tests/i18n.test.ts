@@ -35,3 +35,78 @@ test("i18n language resolution falls back correctly and distinguishes zh-TW / zh
   assert.equal(t("settingsCascadeSection", "zh-TW"), "雙面板接龍與連動");
   assert.equal(t("settingsCascadeSection", "zh-CN"), "双面板接龙与连动");
 });
+
+test("i18n recognizes various Traditional and Simplified Chinese locale tags", () => {
+  const traditionalTags = ["zh-tw", "zh-TW", "zh_TW", "zh-hk", "zh-HK", "zh-mo", "zh-hant", "zh-Hant-TW", "zh-cht", "cht"];
+  for (const tag of traditionalTags) {
+    assert.equal(
+      t("actionGoUp", tag),
+      "返回上層資料夾",
+      `Expected ${tag} to resolve to Traditional Chinese`
+    );
+  }
+
+  const simplifiedTags = ["zh", "zh-cn", "zh-CN", "zh_CN", "zh-sg", "zh-hans", "zh-chs", "chs"];
+  for (const tag of simplifiedTags) {
+    assert.equal(
+      t("actionGoUp", tag),
+      "返回上层文件夹",
+      `Expected ${tag} to resolve to Simplified Chinese`
+    );
+  }
+
+  const fallbackTags = ["en", "en-US", "ja", "de", "unknown"];
+  for (const tag of fallbackTags) {
+    assert.equal(
+      t("actionGoUp", tag),
+      "Up to parent folder",
+      `Expected ${tag} to fall back to English`
+    );
+  }
+});
+
+test("i18n auto-detects locale from window.moment.locale() and localStorage", () => {
+  const originalWindow = (globalThis as any).window;
+
+  try {
+    // 1. 模擬 Obsidian window.moment.locale() 回傳 "zh-tw"
+    (globalThis as any).window = {
+      moment: {
+        locale: () => "zh-tw"
+      }
+    };
+    assert.equal(t("actionGoUp"), "返回上層資料夾");
+    assert.equal(t("commandOpenFolderSpace"), "開啟 Folder Space");
+
+    // 2. 模擬 Obsidian window.localStorage.getItem("language") 回傳 "zh-TW"
+    (globalThis as any).window = {
+      localStorage: {
+        getItem: (key: string) => (key === "language" ? "zh-TW" : null)
+      }
+    };
+    assert.equal(t("actionGoUp"), "返回上層資料夾");
+    assert.equal(t("commandOpenFolderSpace"), "開啟 Folder Space");
+
+    // 3. 模擬簡體中文
+    (globalThis as any).window = {
+      moment: {
+        locale: () => "zh-cn"
+      }
+    };
+    assert.equal(t("actionGoUp"), "返回上层文件夹");
+
+    // 4. 模擬英文
+    (globalThis as any).window = {
+      moment: {
+        locale: () => "en"
+      }
+    };
+    assert.equal(t("actionGoUp"), "Up to parent folder");
+  } finally {
+    if (originalWindow !== undefined) {
+      (globalThis as any).window = originalWindow;
+    } else {
+      delete (globalThis as any).window;
+    }
+  }
+});

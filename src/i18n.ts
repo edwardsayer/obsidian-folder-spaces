@@ -1,3 +1,4 @@
+declare const require: ((id: string) => any) | undefined;
 import type { FolderSpacePresetId } from "./presets.js";
 
 type LocaleKey =
@@ -435,35 +436,75 @@ const SIMPLIFIED_CHINESE: LocaleTable = {
 };
 
 function safeGetLanguage(): string {
-  // INTERNAL API: getLanguage - Obsidian 全域 API（window 上）；測試環境無 window 時 fallback en。
-  const api = typeof window !== "undefined" ? (window as unknown as { getLanguage?: () => string }) : undefined;
-  if (api && typeof api.getLanguage === "function") {
-    return api.getLanguage();
+  // 1. 若在瀏覽器/Obsidian 執行環境，依序自 window 物件檢測
+  if (typeof window !== "undefined") {
+    const win = window as unknown as {
+      getLanguage?: () => string;
+      moment?: { locale?: () => string };
+      localStorage?: Storage;
+    };
+
+    // 1-1. 優先嘗試全域 getLanguage API（若存在）
+    if (typeof win.getLanguage === "function") {
+      try {
+        const lang = win.getLanguage();
+        if (lang) return lang;
+      } catch {
+        // ignore
+      }
+    }
+
+    // 1-2. 嘗試 window.moment.locale()（Obsidian 常用，切換語言時即時更新，繁中為 "zh-tw"）
+    if (typeof win.moment?.locale === "function") {
+      try {
+        const locale = win.moment.locale();
+        if (locale) return locale;
+      } catch {
+        // ignore
+      }
+    }
+
+    // 1-3. 嘗試 localStorage.getItem("language")（Obsidian 內部儲存設定，繁中為 "zh-TW"）
+    if (typeof win.localStorage?.getItem === "function") {
+      try {
+        const stored = win.localStorage.getItem("language");
+        if (stored) return stored;
+      } catch {
+        // ignore
+      }
+    }
   }
+
+  // 2. 在 CommonJS / 外掛打包環境嘗試 require("obsidian").getLanguage
+  if (typeof require === "function") {
+    try {
+      const obs = require("obsidian") as { getLanguage?: () => string } | undefined;
+      if (typeof obs?.getLanguage === "function") {
+        const lang = obs.getLanguage();
+        if (lang) return lang;
+      }
+    } catch {
+      // 在純 Node 測試環境中 require("obsidian") 可能失敗，略過
+    }
+  }
+
   return "en";
 }
 
 export function getTable(lang: string = safeGetLanguage()): LocaleTable {
-  const normalized = lang.toLowerCase();
+  const normalized = (lang || "").toLowerCase().replace(/_/g, "-");
 
-  if (
-    normalized === "zh-tw" ||
-    normalized === "zh-hk" ||
-    normalized === "zh-hant" ||
-    normalized.startsWith("zh-tw-") ||
-    normalized.startsWith("zh-hk-")
-  ) {
-    return TRADITIONAL_CHINESE;
-  }
-
-  if (
-    normalized === "zh" ||
-    normalized === "zh-cn" ||
-    normalized === "zh-sg" ||
-    normalized === "zh-hans" ||
-    normalized.startsWith("zh-cn-") ||
-    normalized.startsWith("zh-sg-")
-  ) {
+  if (normalized.startsWith("zh") || normalized === "cht" || normalized === "chs") {
+    if (
+      normalized.includes("tw") ||
+      normalized.includes("hk") ||
+      normalized.includes("mo") ||
+      normalized.includes("hant") ||
+      normalized === "zh-cht" ||
+      normalized === "cht"
+    ) {
+      return TRADITIONAL_CHINESE;
+    }
     return SIMPLIFIED_CHINESE;
   }
 
