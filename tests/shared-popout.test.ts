@@ -576,3 +576,50 @@ test("workspace getLeaf routes popout sidebar opens to the center pane (folder-s
     });
   }
 });
+
+test("popout panel open placement respects defaultOpenLocationPopout with and without Window Spaces", async () => {
+  const original = globalThis.HTMLElement;
+  Object.defineProperty(globalThis, "HTMLElement", {
+    configurable: true,
+    value: FakeElement
+  });
+  try {
+    // 1. With Window Spaces (sidebar columns exist):
+    const { engine: wsEngine, leftTabs, rightTabs, centerTabs, win: wsWin } = createFakeSidebarLayout();
+    
+    // left-sidebar -> left
+    const leftLeaf = await wsEngine.openPanel(wsWin, "left", "folder-spaces-explorer");
+    assert.equal(leftLeaf.parent, leftTabs);
+    assert.equal(leftLeaf.getViewState().type, "folder-spaces-explorer");
+
+    // right-sidebar -> right
+    const rightLeaf = await wsEngine.openPanel(wsWin, "right", "folder-spaces-explorer");
+    assert.equal(rightLeaf.parent, rightTabs);
+    assert.equal(rightLeaf.getViewState().type, "folder-spaces-explorer");
+
+    // editor -> tab
+    const centerLeaf = await wsEngine.openPanel(wsWin, "tab", "folder-spaces-explorer");
+    assert.equal(centerLeaf.parent, centerTabs);
+    assert.equal(centerLeaf.getViewState().type, "folder-spaces-explorer");
+
+    // 2. Without Window Spaces (clean single-column content area, e.g. status-bar-only or WS absent):
+    const { engine: cleanEngine, tabs: cleanTabs, win: cleanWin } = createFakeLayout();
+    
+    // left-sidebar -> "left" falls back to clean content split, does NOT produce window-spaces-sidebar-column
+    const fallbackLeftLeaf = await cleanEngine.openPanel(cleanWin, "left", "folder-spaces-explorer");
+    assert.equal(fallbackLeftLeaf.getViewState().type, "folder-spaces-explorer");
+    assert.equal((fallbackLeftLeaf as unknown as FakeLeaf).containerEl.classList.contains("window-spaces-sidebar-column"), false);
+    const parentCol = (fallbackLeftLeaf as unknown as FakeLeaf).containerEl.parentElement;
+    assert.equal(parentCol ? parentCol.classList.contains("window-spaces-sidebar-column") : false, false);
+
+    // editor -> "tab" opens in cleanTabs
+    const cleanCenterLeaf = await cleanEngine.openPanel(cleanWin, "tab", "folder-spaces-explorer");
+    assert.equal(cleanCenterLeaf.getViewState().type, "folder-spaces-explorer");
+    assert.equal(cleanCenterLeaf.parent, cleanTabs);
+  } finally {
+    Object.defineProperty(globalThis, "HTMLElement", {
+      configurable: true,
+      value: original
+    });
+  }
+});

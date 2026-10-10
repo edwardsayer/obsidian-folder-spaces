@@ -8,6 +8,7 @@ export type { FolderSpaceSortOrder };
 export type { FolderSpaceSortKey, FolderSpaceSortDir } from "./folder-space-sort-filter.js";
 
 export type FolderSpaceLocation = "left-sidebar" | "right-sidebar" | "editor" | "window";
+export type FolderSpaceDefaultOpenLocation = Exclude<FolderSpaceLocation, "window">;
 
 /**
  * Fixed default icon for Folder Space tabs and menu entries. It is part of the
@@ -18,8 +19,8 @@ export const DEFAULT_VIEW_ICON = "lucide-folders";
 
 export interface FolderSpacesSettings {
   folderIcons: Record<string, string>;
-  defaultOpenLocationMain: FolderSpaceLocation;
-  defaultOpenLocationPopout: FolderSpaceLocation;
+  defaultOpenLocationMain: FolderSpaceDefaultOpenLocation;
+  defaultOpenLocationPopout: FolderSpaceDefaultOpenLocation;
   defaultViewMode: FolderSpaceViewMode;
   defaultDepthMode: FolderSpaceDepthMode;
   defaultContentMode: FolderSpaceContentMode;
@@ -102,8 +103,8 @@ function normalizeFolderSortOrders(data: unknown): Record<string, FolderSpaceSor
   return normalized;
 }
 
-export function resolveOpenLocation(location: unknown): FolderSpaceLocation {
-  return location === "right-sidebar" || location === "editor" || location === "window"
+export function resolveOpenLocation(location: unknown): FolderSpaceDefaultOpenLocation {
+  return location === "right-sidebar" || location === "editor"
     ? location
     : "left-sidebar";
 }
@@ -133,7 +134,7 @@ export function resolveOpenLocations(
 export function getDefaultOpenLocation(
   settings: Pick<FolderSpacesSettings, "defaultOpenLocationMain" | "defaultOpenLocationPopout">,
   isPopout: boolean
-): FolderSpaceLocation {
+): FolderSpaceDefaultOpenLocation {
   return isPopout ? settings.defaultOpenLocationPopout : settings.defaultOpenLocationMain;
 }
 

@@ -534,14 +534,18 @@ export default class FolderSpacesPlugin extends Plugin {
     }
     const { win } = result;
 
-    // 放置規則：左側欄 → 右側欄 → content area（依 Window Spaces 的側欄可用性；
-    // 無 Window Spaces 時 getSidebarSides 為 undefined → content area）。
-    const sides = this.popoutLayout.getSidebarSides(win);
-    const location = sides?.left
-      ? ("left" as const)
-      : sides?.right
+    // 放置規則：依 FS 自己的設定 defaultOpenLocationPopout 決定放置位置
+    // （職責分工：WS 負責開窗與裝飾，FS 負責 folder view 放置）。
+    // left-sidebar → "left", right-sidebar → "right", editor → "tab"。
+    // 注意：當 WS 的 nativePopoutPolicy = status-bar-only（無側欄）或無 WS 時，
+    // openPanel("left"/"right") 會退化為一般 content split（不帶 sidebar 語意標記）。
+    const targetLocation = this.settings.defaultOpenLocationPopout;
+    const location =
+      targetLocation === "right-sidebar"
         ? ("right" as const)
-        : ("tab" as const);
+        : targetLocation === "editor"
+          ? ("tab" as const)
+          : ("left" as const);
 
     const folderSpaceLeaf = await this.popoutLayout.openPanel(win, location, FOLDER_SPACES_VIEW_TYPE);
     makeNavigable(folderSpaceLeaf);
@@ -633,9 +637,6 @@ export default class FolderSpacesPlugin extends Plugin {
     if (existing) {
       makeNavigable(existing);
       makeNavigable(existing.view);
-      if (location === "left-sidebar" || location === "right-sidebar") {
-        markPopoutSidebarColumn(existing);
-      }
       this.applyChildBinding(parentPanelId ?? null, existing);
       await workspace.revealLeaf(existing);
       workspace.setActiveLeaf(existing, { focus: true });
@@ -651,9 +652,6 @@ export default class FolderSpacesPlugin extends Plugin {
           )
         : await this.popoutLayout.openPanel(win, "tab", "empty");
 
-    if (location === "left-sidebar" || location === "right-sidebar") {
-      markPopoutSidebarColumn(leaf);
-    }
 
     makeNavigable(leaf);
     const initialPresetPopout = this.getInitialPresetModes(parentPanelId, false);
@@ -1097,37 +1095,6 @@ function refreshLeafHeader(leaf: WorkspaceLeaf): void {
   updateFolderSpaceLeafTooltip(leaf, view?.folderPath ?? null);
 }
 
-function getViewContainer(leaf: WorkspaceLeaf): HTMLElement | null {
-  const view = leaf.view as View & { containerEl?: HTMLElement };
-  return view.containerEl?.instanceOf(HTMLElement) ? view.containerEl : null;
-}
-
-function getDirectSplitChild(split: HTMLElement, element: HTMLElement): HTMLElement | null {
-  let current: HTMLElement | null = element;
-  while (current && current.parentElement !== split) {
-    current = current.parentElement;
-  }
-  return current;
-}
-
-/**
- * 將 Popout 中 Folder Space 所在的側欄欄位標記為 sidebar
- * （與 Window Spaces 的 UI 標記 window-spaces-sidebar-column 一致）。
- * shared engine 的 isLeafInSideColumn / getCenterPanes 以該 class 為被動判定
- * 依據；在無 Window Spaces 管理（無 activity bar hints / class）的環境，
- * Folder Spaces 自行標記可確保開檔排除側欄欄位。class 為 idempotent，
- * Window Spaces 已標記時無副作用。
- */
-function markPopoutSidebarColumn(leaf: WorkspaceLeaf): void {
-  const container = getViewContainer(leaf);
-  if (!container) return;
-  const rootEl = container.closest<HTMLElement>(".workspace-split.mod-root");
-  if (!rootEl) return;
-  const column = getDirectSplitChild(rootEl, container);
-  if (column && !column.classList.contains("window-spaces-sidebar-column")) {
-    column.classList.add("window-spaces-sidebar-column");
-  }
-}
 
 function getLocationIcon(location: FolderSpaceLocation): string {
   switch (location) {

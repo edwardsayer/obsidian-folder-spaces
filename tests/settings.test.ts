@@ -61,7 +61,7 @@ test("normalizeSettings tolerates null folder icons data", () => {
 
 test("normalizeSettings defaults open location per window", () => {
   assert.equal(resolveOpenLocation("editor"), "editor");
-  assert.equal(resolveOpenLocation("window"), "window");
+  assert.equal(resolveOpenLocation("window"), "left-sidebar");
   assert.equal(resolveOpenLocation("right-sidebar"), "right-sidebar");
   assert.equal(resolveOpenLocation("bogus"), "left-sidebar");
   assert.equal(resolveOpenLocation(undefined), "left-sidebar");
@@ -73,8 +73,8 @@ test("normalizeSettings defaults open location per window", () => {
 
 test("normalizeSettings migrates the legacy open location to both windows", () => {
   const migrated = normalizeSettings({ defaultOpenLocation: "window" });
-  assert.equal(migrated.defaultOpenLocationMain, "window");
-  assert.equal(migrated.defaultOpenLocationPopout, "window");
+  assert.equal(migrated.defaultOpenLocationMain, "left-sidebar");
+  assert.equal(migrated.defaultOpenLocationPopout, "left-sidebar");
 
   const fallback = normalizeSettings({ defaultOpenLocation: "nope" });
   assert.equal(fallback.defaultOpenLocationMain, "left-sidebar");
@@ -84,10 +84,19 @@ test("normalizeSettings migrates the legacy open location to both windows", () =
 test("normalizeSettings keeps per-window open locations", () => {
   const settings = normalizeSettings({
     defaultOpenLocationMain: "editor",
-    defaultOpenLocationPopout: "window"
+    defaultOpenLocationPopout: "right-sidebar"
   });
   assert.equal(settings.defaultOpenLocationMain, "editor");
-  assert.equal(settings.defaultOpenLocationPopout, "window");
+  assert.equal(settings.defaultOpenLocationPopout, "right-sidebar");
+});
+
+test("normalizeSettings migrates legacy window in per-window setting", () => {
+  const settings = normalizeSettings({
+    defaultOpenLocationMain: "window",
+    defaultOpenLocationPopout: "window"
+  });
+  assert.equal(settings.defaultOpenLocationMain, "left-sidebar");
+  assert.equal(settings.defaultOpenLocationPopout, "left-sidebar");
 });
 
 test("getDefaultOpenLocation picks the per-window setting", () => {

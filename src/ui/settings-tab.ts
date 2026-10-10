@@ -3,7 +3,7 @@ import type { SettingDefinitionItem } from "obsidian";
 
 import { t, presetLabel } from "../i18n.js";
 import {
-  type FolderSpaceLocation,
+  type FolderSpaceDefaultOpenLocation,
   type FolderSpacesSettings
 } from "../settings.js";
 import {
@@ -179,12 +179,11 @@ export class FolderSpacesSettingTab extends PluginSettingTab {
     await this.plugin.updateSettings(next);
   }
 
-  private getLocationOptions(): Record<FolderSpaceLocation, string> {
+  private getLocationOptions(): Record<FolderSpaceDefaultOpenLocation, string> {
     return {
       "left-sidebar": t("menuFolderSpacesLeftSidebar"),
       "right-sidebar": t("menuFolderSpacesRightSidebar"),
-      editor: t("menuFolderSpacesEditor"),
-      window: t("menuFolderSpacesWindow")
+      editor: t("menuFolderSpacesEditor")
     };
   }
 
