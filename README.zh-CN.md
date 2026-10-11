@@ -1,7 +1,8 @@
 # Folder Spaces
 
-[![Release](https://img.shields.io/github/v/release/edwardsayer/obsidian-folder-spaces?style=flat-square)](https://github.com/edwardsayer/obsidian-folder-spaces/releases)
-[![Obsidian Min Version](https://img.shields.io/badge/Obsidian-1.13.0%2B-purple?style=flat-square)](https://obsidian.md)
+[![Downloads](https://img.shields.io/badge/dynamic/json?style=flat-square&logo=obsidian&color=7C3AED&label=Downloads&query=%24%5B%27folder-spaces%27%5D.downloads&url=https%3A%2F%2Fraw.githubusercontent.com%2Fobsidianmd%2Fobsidian-releases%2Fmaster%2Fcommunity-plugin-stats.json)](https://obsidian.md/plugins?id=folder-spaces)
+[![Release](https://img.shields.io/github/v/release/edwardsayer/obsidian-folder-spaces?style=flat-square&logo=github)](https://github.com/edwardsayer/obsidian-folder-spaces/releases)
+[![Obsidian Min Version](https://img.shields.io/badge/Obsidian-1.13.0%2B-purple?style=flat-square&logo=obsidian)](https://obsidian.md)
 [![Platform](https://img.shields.io/badge/Platform-Desktop%20only-lightgrey?style=flat-square)](#兼容性与许可协议)
 [![License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE)
 
