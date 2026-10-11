@@ -65,48 +65,30 @@ test("i18n recognizes various Traditional and Simplified Chinese locale tags", (
   }
 });
 
-test("i18n auto-detects locale from window.moment.locale() and localStorage", () => {
-  const originalWindow = (globalThis as any).window;
+test("i18n auto-detects locale from Obsidian getLanguage() and moment.locale()", () => {
+  const originalLang = (globalThis as any).__mockObsidianLanguage;
+  const originalMoment = (globalThis as any).__mockMomentLocale;
 
   try {
-    // 1. 模擬 Obsidian window.moment.locale() 回傳 "zh-tw"
-    (globalThis as any).window = {
-      moment: {
-        locale: () => "zh-tw"
-      }
-    };
+    // 1. 模擬 Obsidian getLanguage() 回傳 "zh-TW"
+    (globalThis as any).__mockObsidianLanguage = "zh-TW";
     assert.equal(t("actionGoUp"), "返回上層資料夾");
     assert.equal(t("commandOpenFolderSpace"), "開啟 Folder Space");
 
-    // 2. 模擬 Obsidian window.localStorage.getItem("language") 回傳 "zh-TW"
-    (globalThis as any).window = {
-      localStorage: {
-        getItem: (key: string) => (key === "language" ? "zh-TW" : null)
-      }
-    };
-    assert.equal(t("actionGoUp"), "返回上層資料夾");
-    assert.equal(t("commandOpenFolderSpace"), "開啟 Folder Space");
-
-    // 3. 模擬簡體中文
-    (globalThis as any).window = {
-      moment: {
-        locale: () => "zh-cn"
-      }
-    };
+    // 2. 模擬 Obsidian getLanguage() 回傳 "zh-CN"
+    (globalThis as any).__mockObsidianLanguage = "zh-CN";
     assert.equal(t("actionGoUp"), "返回上层文件夹");
 
+    // 3. 模擬 Obsidian getLanguage() 無法取得時 fallback 到 moment.locale() 回傳 "zh-tw"
+    (globalThis as any).__mockObsidianLanguage = "";
+    (globalThis as any).__mockMomentLocale = "zh-tw";
+    assert.equal(t("actionGoUp"), "返回上層資料夾");
+
     // 4. 模擬英文
-    (globalThis as any).window = {
-      moment: {
-        locale: () => "en"
-      }
-    };
+    (globalThis as any).__mockObsidianLanguage = "en";
     assert.equal(t("actionGoUp"), "Up to parent folder");
   } finally {
-    if (originalWindow !== undefined) {
-      (globalThis as any).window = originalWindow;
-    } else {
-      delete (globalThis as any).window;
-    }
+    (globalThis as any).__mockObsidianLanguage = originalLang;
+    (globalThis as any).__mockMomentLocale = originalMoment;
   }
 });

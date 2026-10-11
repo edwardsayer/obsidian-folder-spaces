@@ -1,4 +1,4 @@
-declare const require: ((id: string) => any) | undefined;
+import { getLanguage, moment } from "obsidian";
 import type { FolderSpacePresetId } from "./presets.js";
 
 type LocaleKey =
@@ -436,55 +436,31 @@ const SIMPLIFIED_CHINESE: LocaleTable = {
 };
 
 function safeGetLanguage(): string {
-  // 1. 若在瀏覽器/Obsidian 執行環境，依序自 window 物件檢測
+  try {
+    const lang = typeof getLanguage === "function" ? getLanguage() : undefined;
+    if (lang) return lang;
+  } catch {
+    // fallback
+  }
+
+  try {
+    const locale = typeof moment?.locale === "function" ? moment.locale() : undefined;
+    if (locale) return locale;
+  } catch {
+    // fallback
+  }
+
   if (typeof window !== "undefined") {
     const win = window as unknown as {
-      getLanguage?: () => string;
       moment?: { locale?: () => string };
-      localStorage?: Storage;
     };
-
-    // 1-1. 優先嘗試全域 getLanguage API（若存在）
-    if (typeof win.getLanguage === "function") {
-      try {
-        const lang = win.getLanguage();
-        if (lang) return lang;
-      } catch {
-        // ignore
-      }
-    }
-
-    // 1-2. 嘗試 window.moment.locale()（Obsidian 常用，切換語言時即時更新，繁中為 "zh-tw"）
     if (typeof win.moment?.locale === "function") {
       try {
         const locale = win.moment.locale();
         if (locale) return locale;
       } catch {
-        // ignore
+        // fallback
       }
-    }
-
-    // 1-3. 嘗試 localStorage.getItem("language")（Obsidian 內部儲存設定，繁中為 "zh-TW"）
-    if (typeof win.localStorage?.getItem === "function") {
-      try {
-        const stored = win.localStorage.getItem("language");
-        if (stored) return stored;
-      } catch {
-        // ignore
-      }
-    }
-  }
-
-  // 2. 在 CommonJS / 外掛打包環境嘗試 require("obsidian").getLanguage
-  if (typeof require === "function") {
-    try {
-      const obs = require("obsidian") as { getLanguage?: () => string } | undefined;
-      if (typeof obs?.getLanguage === "function") {
-        const lang = obs.getLanguage();
-        if (lang) return lang;
-      }
-    } catch {
-      // 在純 Node 測試環境中 require("obsidian") 可能失敗，略過
     }
   }
 
