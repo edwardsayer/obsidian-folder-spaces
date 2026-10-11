@@ -623,3 +623,64 @@ test("popout panel open placement respects defaultOpenLocationPopout with and wi
     });
   }
 });
+
+test("workspace getLeavesOfType and getLeftLeaf/getRightLeaf are not intercepted by workspaceInterceptor (PR #2)", () => {
+  const original = globalThis.HTMLElement;
+  Object.defineProperty(globalThis, "HTMLElement", {
+    configurable: true,
+    value: FakeElement
+  });
+  const globalObject = globalThis as unknown as {
+    window?: Window;
+    activeWindow?: Window;
+  };
+  const previousWindow = globalObject.window;
+  const previousActiveWindow = globalObject.activeWindow;
+  try {
+    const { engine, workspace, win } = createFakeSidebarLayout();
+    const mainWindow = {} as unknown as Window;
+    Object.assign(globalObject, { window: mainWindow, activeWindow: win });
+
+    const rawGetLeavesOfType = () => ["leaf-main", "leaf-popout"] as unknown as WorkspaceLeaf[];
+    const rawGetLeftLeaf = (split?: boolean) => ({ split, side: "left" }) as unknown as WorkspaceLeaf;
+    const rawGetRightLeaf = (split?: boolean) => ({ split, side: "right" }) as unknown as WorkspaceLeaf;
+
+    (workspace as unknown as Record<string, unknown>).getLeavesOfType = rawGetLeavesOfType;
+    (workspace as unknown as Record<string, unknown>).getLeftLeaf = rawGetLeftLeaf;
+    (workspace as unknown as Record<string, unknown>).getRightLeaf = rawGetRightLeaf;
+
+    acquireWorkspaceInterceptor({ workspace } as unknown as App, {
+      id: "test-fs-unintercepted",
+      engine,
+      isManagedWindow: (w) => w === win
+    });
+
+    const patchedWorkspace = workspace as unknown as App["workspace"];
+
+    // 斷言方法引用維持未被 wrap，或呼叫回傳結果完全是原生的全域清單與原生側欄 Leaf
+    assert.deepEqual(patchedWorkspace.getLeavesOfType("markdown" as never), rawGetLeavesOfType());
+    assert.deepEqual(patchedWorkspace.getLeftLeaf(false), { split: false, side: "left" });
+    assert.deepEqual(patchedWorkspace.getRightLeaf(true), { split: true, side: "right" });
+    assert.equal(patchedWorkspace.getLeavesOfType, rawGetLeavesOfType);
+    assert.equal(patchedWorkspace.getLeftLeaf, rawGetLeftLeaf);
+    assert.equal(patchedWorkspace.getRightLeaf, rawGetRightLeaf);
+  } finally {
+    releaseWorkspaceInterceptor("test-fs-unintercepted");
+    if (previousWindow === undefined) {
+      delete globalObject.window;
+      delete (globalThis as unknown as { window?: unknown }).window;
+    } else {
+      globalObject.window = previousWindow;
+    }
+    if (previousActiveWindow === undefined) {
+      delete globalObject.activeWindow;
+    } else {
+      globalObject.activeWindow = previousActiveWindow;
+    }
+    Object.defineProperty(globalThis, "HTMLElement", {
+      configurable: true,
+      value: original
+    });
+  }
+});
+
