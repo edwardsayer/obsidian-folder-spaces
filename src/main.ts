@@ -980,8 +980,7 @@ function createNativeExplorerBinding(
     // ignored by the containment check.
     if (!handler) {
       handler = (event: MouseEvent) => {
-        const child = manager.getChildOf(panelId);
-        if (!child || !child.followParent) {
+        if (!manager.getChildrenOf(panelId).some((child) => child.followParent)) {
           return;
         }
         const currentView = leaf.view as unknown as NativeExplorerViewLike | undefined;
@@ -1006,8 +1005,7 @@ function createNativeExplorerBinding(
       (tree as unknown as { _folderSpacesSetFocusedHooked?: boolean })._folderSpacesSetFocusedHooked = true;
       const originalSetFocusedItem = tree.setFocusedItem.bind(tree);
       const debouncedPropagate = debounce((path: string) => {
-        const child = manager.getChildOf(panelId);
-        if (child && child.followParent) {
+        if (manager.hasChild(panelId)) {
           manager.propagateFrom(panelId, path);
         }
       }, 30, true);
@@ -1032,8 +1030,7 @@ function createNativeExplorerBinding(
       // the Folder Notes plugin) already handled the click, so it never blocks
       // plugins that open a folder note.
       toggleBlocker = (event: MouseEvent) => {
-        const child = manager.getChildOf(panelId);
-        if (!child || !child.followParent) {
+        if (!manager.getChildrenOf(panelId).some((child) => child.followParent)) {
           return;
         }
         const currentView = leaf.view as unknown as NativeExplorerViewLike | undefined;

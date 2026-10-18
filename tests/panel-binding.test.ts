@@ -74,7 +74,7 @@ test("bind links parent and child and marks the child's parentPanelId", () => {
   assert.equal(child.bindingChangedCount, 1);
 });
 
-test("bind is 1:1 - rebinding a parent replaces its previous child", () => {
+test("bind supports multiple children per parent", () => {
   const manager = new PanelBindingManager();
   const parent = createPanel("parent");
   const childA = createPanel("child-a");
@@ -87,9 +87,10 @@ test("bind is 1:1 - rebinding a parent replaces its previous child", () => {
   manager.bind("parent", "child-a");
   manager.bind("parent", "child-b");
 
-  assert.equal(manager.getChildOf("parent"), childB);
-  assert.equal(childA.parentPanelId, null);
-  assert.equal(manager.getParentOf("child-a"), null);
+  assert.deepEqual(manager.getChildrenOf("parent"), [childA, childB]);
+  assert.equal(manager.getChildOf("parent"), childA);
+  assert.equal(childA.parentPanelId, "parent");
+  assert.equal(manager.getParentOf("child-a"), parent);
 });
 
 test("child panels can parent deeper cascades (unlimited depth)", () => {
@@ -184,6 +185,22 @@ test("propagateFrom pushes an explicit folder path to the following child", () =
   manager.propagateFrom("parent", "/A/sub/deep");
   assert.equal(child.folderPath, "/A/sub/deep");
   assert.deepEqual(child.lastFolderPathChangeOptions, { preserveViewSettings: true });
+});
+
+test("propagateFrom broadcasts to all following children", () => {
+  const manager = new PanelBindingManager();
+  const parent = createPanel("parent", { folderPath: "/A" });
+  const childA = createPanel("child-a", { folderPath: "/A/a" });
+  const childB = createPanel("child-b", { folderPath: "/A/b" });
+  const paused = createPanel("paused", { followParent: false, folderPath: "/A/paused" });
+  [parent, childA, childB, paused].forEach((panel) => manager.register(panel));
+  manager.bind("parent", "child-a");
+  manager.bind("parent", "child-b");
+  manager.bind("parent", "paused");
+  manager.propagateFrom("parent", "/B");
+  assert.equal(childA.folderPath, "/B");
+  assert.equal(childB.folderPath, "/B");
+  assert.equal(paused.folderPath, "/A/paused");
 });
 
 test("propagateFrom uses the parent's current path when no explicit path is given", () => {
@@ -382,6 +399,7 @@ test("toggleLinkedViewsHighlight toggles highlight class on both bound views", (
 
   const parentLeaf = createMockLeaf();
   const childLeaf = createMockLeaf();
+  const siblingLeaf = createMockLeaf();
 
   const parentPanel = createPanel("parent");
   parentPanel.leaf = parentLeaf;
@@ -393,12 +411,18 @@ test("toggleLinkedViewsHighlight toggles highlight class on both bound views", (
 
   manager.register(parentPanel);
   manager.register(childPanel);
+  const siblingPanel = createPanel("sibling");
+  siblingPanel.leaf = siblingLeaf;
+  siblingPanel.containerEl = siblingLeaf.containerEl;
+  manager.register(siblingPanel);
   manager.bind("parent", "child");
+  manager.bind("parent", "sibling");
 
   // Child hovers its status icon
   toggleLinkedViewsHighlight(manager, "child", childLeaf, "parent", true);
   assert.equal((childLeaf.containerEl as any).hasClass("is-highlighted"), true);
   assert.equal((parentLeaf.containerEl as any).hasClass("is-highlighted"), true);
+  assert.equal((siblingLeaf.containerEl as any).hasClass("is-highlighted"), false);
 
   // Child unhovers
   toggleLinkedViewsHighlight(manager, "child", childLeaf, "parent", false);
@@ -408,10 +432,12 @@ test("toggleLinkedViewsHighlight toggles highlight class on both bound views", (
   // Parent hovers its sync focus icon
   toggleLinkedViewsHighlight(manager, "parent", parentLeaf, "child", true);
   assert.equal((childLeaf.containerEl as any).hasClass("is-highlighted"), true);
+  assert.equal((siblingLeaf.containerEl as any).hasClass("is-highlighted"), true);
   assert.equal((parentLeaf.containerEl as any).hasClass("is-highlighted"), true);
 
   // Parent unhovers
   toggleLinkedViewsHighlight(manager, "parent", parentLeaf, "child", false);
   assert.equal((childLeaf.containerEl as any).hasClass("is-highlighted"), false);
+  assert.equal((siblingLeaf.containerEl as any).hasClass("is-highlighted"), false);
   assert.equal((parentLeaf.containerEl as any).hasClass("is-highlighted"), false);
 });

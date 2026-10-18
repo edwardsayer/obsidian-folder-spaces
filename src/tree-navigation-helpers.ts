@@ -1,3 +1,7 @@
+export function shouldCollectFilesAtDepth(depth: number, depthLimit: number | null): boolean {
+  return depthLimit === null || depth < depthLimit;
+}
+
 export interface NavigableTreeItem {
   el?: HTMLElement;
   selfEl?: HTMLElement;

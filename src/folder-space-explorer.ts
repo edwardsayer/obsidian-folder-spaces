@@ -37,7 +37,8 @@ import { isShowUnsupportedFilesEnabled, toInternalApp } from "./types.js";
 import {
   computeNextFocusedItem,
   getVisibleTreeItems as getVisibleTreeItemsHelper,
-  isElementVisible
+  isElementVisible,
+  shouldCollectFilesAtDepth
 } from "./tree-navigation-helpers.js";
 export { isElementVisible };
 import { presetLabel, t } from "./i18n.js";
@@ -1801,7 +1802,7 @@ function filterByContentMode(view: PatchedExplorerView, items: InternalTreeItem[
 
 /**
  * 判斷資料夾在當前 view 的設定下是否為「端點（Terminal Node）」：
- * 1. 深度限制：在 tree 模式下，若資料夾深度已達 depthLimit，無法在當前視圖就地展開。
+ * 1. 深度限制：資料夾深度已達 depthLimit 時，無法在當前視圖就地展開。
  * 2. 內容項目：在當前 contentMode 下，該資料夾內部無可展示的子項目（空資料夾，或純資料夾模式下無子資料夾）。
  */
 export function isTerminalFolderItem(view: PatchedExplorerView, folder: TFolder): boolean {
@@ -1811,7 +1812,7 @@ export function isTerminalFolderItem(view: PatchedExplorerView, folder: TFolder)
   }
 
   // 深度限制
-  if (view.viewMode === "tree") {
+  {
     const depthLimit = getFolderDepthLimit(view.depthMode);
     if (depthLimit !== null) {
       const depth = getFolderDepthFromRoot(rootFolder, folder);
@@ -2327,8 +2328,8 @@ function refreshSyncFocusMarker(view: PatchedExplorerView): void {
     return;
   }
 
-  const child = manager.getChildOf(view.panelId);
-  if (!child || !child.followParent) {
+  const child = manager.getChildrenOf(view.panelId).find((candidate) => candidate.followParent);
+  if (!child) {
     return;
   }
 
@@ -2726,8 +2727,9 @@ function followParentScopeOnFolderClick(view: PatchedExplorerView, event: MouseE
   }
 
   const manager = view.bindingManager;
-  const child = manager?.getChildOf(view.panelId);
-  const hasFollowingChild = Boolean(child && child.isAlive() && child.followParent);
+  const hasFollowingChild = Boolean(
+    manager?.getChildrenOf(view.panelId).some((child) => child.followParent)
+  );
 
   const isNameClick = Boolean(target.closest(".nav-folder-title-content"));
 
@@ -2978,8 +2980,7 @@ export function registerTreeNavigationOverride(view: PatchedExplorerView): void 
       if (!manager) {
         return;
       }
-      const child = manager.getChildOf(view.panelId);
-      if (child && child.followParent) {
+      if (manager.hasChild(view.panelId)) {
         manager.propagateFrom(view.panelId, path);
       }
     }, 30, true);
@@ -3914,7 +3915,7 @@ function getFlatItems(view: PatchedExplorerView, rootFolder: TFolder): InternalT
     if (showFiles) {
       // 資料夾隱藏（contentMode=files）時，此資料夾內的檔案處於相對於 root 的 depth + 1 層。
       // 若有 depthLimit（如 List 預設集 depth=1），子目錄內的檔案（depth >= 1）不可被收集。
-      const shouldCollectFiles = showFolders || depthLimit === null || depth < depthLimit;
+      const shouldCollectFiles = shouldCollectFilesAtDepth(depth, depthLimit);
       if (shouldCollectFiles) {
         // When folders are hidden, files lose their folder group and are
         // promoted to the root level instead.

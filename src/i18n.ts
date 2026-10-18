@@ -74,6 +74,7 @@ type LocaleKey =
   | "presetContents"
   | "presetFiles"
   | "presetList"
+  | "presetItems"
   | "presetContext"
   | "presetCustom"
   | "presetSection"
@@ -183,6 +184,7 @@ const ENGLISH: LocaleTable = {
   presetContents: "Contents",
   presetFiles: "Files",
   presetList: "List",
+  presetItems: "Items",
   presetContext: "Context",
   presetCustom: "Custom",
   presetSection: "Preset",
@@ -210,7 +212,7 @@ const ENGLISH: LocaleTable = {
   actionToggleParentLink: "Enable/disable link",
   actionRemoveParentLink: "Remove parent link (cannot be undone)",
   settingsPresetsReferenceHeading: "Preset configurations reference",
-  settingsPresetsReferenceDesc: "Overview of the 7 built-in Folder Space view presets and their parameters.",
+  settingsPresetsReferenceDesc: "Overview of the 8 built-in Folder Space view presets and their parameters.",
   settingsCascadeSection: "Cascade & linking",
   settingsAlwaysOpenInOtherPanelName: "Always open in other panel",
   settingsAlwaysOpenInOtherPanelDesc:
@@ -292,6 +294,7 @@ const TRADITIONAL_CHINESE: LocaleTable = {
   presetContents: "內容",
   presetFiles: "檔案",
   presetList: "清單",
+  presetItems: "項目",
   presetContext: "脈絡",
   presetCustom: "自訂",
   presetSection: "檢視預設集",
@@ -319,7 +322,7 @@ const TRADITIONAL_CHINESE: LocaleTable = {
   actionToggleParentLink: "啟用/停用連結",
   actionRemoveParentLink: "移除父連結 (無法復原)",
   settingsPresetsReferenceHeading: "預設集規格對照表",
-  settingsPresetsReferenceDesc: "Folder Space 7 大內建檢視預設集的維度參數與說明。",
+  settingsPresetsReferenceDesc: "Folder Space 8 大內建檢視預設集的維度參數與說明。",
   settingsCascadeSection: "雙面板接龍與連動",
   settingsAlwaysOpenInOtherPanelName: "總是開啟於其他面板",
   settingsAlwaysOpenInOtherPanelDesc:
@@ -401,6 +404,7 @@ const SIMPLIFIED_CHINESE: LocaleTable = {
   presetContents: "内容",
   presetFiles: "文件",
   presetList: "清单",
+  presetItems: "项目",
   presetContext: "脉络",
   presetCustom: "自定义",
   presetSection: "视图预设",
@@ -428,7 +432,7 @@ const SIMPLIFIED_CHINESE: LocaleTable = {
   actionToggleParentLink: "启用/停用链接",
   actionRemoveParentLink: "移除父链接 (无法复原)",
   settingsPresetsReferenceHeading: "预设规格对照表",
-  settingsPresetsReferenceDesc: "Folder Space 7 大内置视图预设的维度参数与说明。",
+  settingsPresetsReferenceDesc: "Folder Space 8 大内置视图预设的维度参数与说明。",
   settingsCascadeSection: "双面板接龙与连动",
   settingsAlwaysOpenInOtherPanelName: "总是打开于其他面板",
   settingsAlwaysOpenInOtherPanelDesc:
@@ -498,6 +502,7 @@ const PRESET_NAME_KEYS: Record<FolderSpacePresetId, LocaleKey> = {
   contents: "presetContents",
   files: "presetFiles",
   context: "presetContext",
+  items: "presetItems",
   list: "presetList"
 };
 

@@ -4,7 +4,8 @@ import test from "node:test";
 import {
   computeNextFocusedItem,
   getVisibleTreeItems,
-  isElementVisible
+  isElementVisible,
+  shouldCollectFilesAtDepth
 } from "../src/tree-navigation-helpers.js";
 import { getPreset, presetToState } from "../src/presets.js";
 
@@ -87,6 +88,14 @@ function createMockElement(tagName: string, className = ""): any {
 
   return el;
 }
+
+test("flat one-level all collects root files but excludes files inside first-level folders", () => {
+  const depthLimit = 1;
+  assert.equal(shouldCollectFilesAtDepth(0, depthLimit), true);
+  assert.equal(shouldCollectFilesAtDepth(1, depthLimit), false);
+  assert.equal(shouldCollectFilesAtDepth(2, depthLimit), false);
+  assert.equal(shouldCollectFilesAtDepth(1, null), true);
+});
 
 test("isElementVisible accurately detects visibility in tree hierarchy", () => {
   const body = createMockElement("body");

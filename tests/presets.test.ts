@@ -15,7 +15,7 @@ import {
 test("preset list is ordered as expected with explorer first", () => {
   assert.deepEqual(
     FOLDER_SPACE_PRESETS.map((p) => p.id),
-    ["explorer", "navigate", "columns", "context", "contents", "files", "list"]
+    ["explorer", "navigate", "columns", "context", "contents", "files", "items", "list"]
   );
 });
 
@@ -36,11 +36,12 @@ test("matchPreset identifies the preset from exact (view, depth, content) modes"
   assert.equal(matchPreset("flat", "all-level", "all"), "contents");
   assert.equal(matchPreset("flat", "all-level", "files"), "files");
   assert.equal(matchPreset("flat", "one-level", "files"), "list");
+  assert.equal(matchPreset("flat", "one-level", "all"), "items");
 });
 
 test("matchPreset returns null for custom depth in flat mode or custom combinations", () => {
   // Flat 模式下 depth 亦生效，非預設集組合屬自訂模式
-  assert.equal(matchPreset("flat", "one-level", "all"), null);
+  assert.equal(matchPreset("flat", "one-level", "all"), "items");
   assert.equal(matchPreset("flat", "two-level", "all"), null);
   assert.equal(matchPreset("flat", "two-level", "files"), null);
   assert.equal(matchPreset("flat", "all-level", "folders"), null);

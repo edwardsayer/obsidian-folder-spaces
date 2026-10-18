@@ -44,93 +44,46 @@ export function generatePanelId(): string {
 export class PanelBindingManager {
   private readonly panels = new Map<string, PanelBindingView>();
   private readonly parentOf = new Map<string, string>();
-  private readonly childOf = new Map<string, string>();
+  private readonly childrenOf = new Map<string, Set<string>>();
 
-  /**
-   * Registers (or refreshes) a panel in the manager. This is non-destructive:
-   * existing bindings are kept, so re-registering every Folder Space leaf on
-   * every layout change is safe. Use `reconcile()` to prune dead panels and
-   * re-link bindings derived from persisted `parentPanelId` values.
-   */
   register(view: PanelBindingView): void {
-    if (!view || !view.panelId) {
-      return;
-    }
-    this.panels.set(view.panelId, view);
+    if (view?.panelId) this.panels.set(view.panelId, view);
   }
 
   unregister(panelId: string): void {
-    const parentId = this.parentOf.get(panelId);
-    if (parentId) {
-      this.parentOf.delete(panelId);
-      this.childOf.delete(parentId);
-      this.panels.get(parentId)?.onBindingChanged?.();
-    }
-
-    const childId = this.childOf.get(panelId);
-    if (childId) {
-      this.childOf.delete(panelId);
-      this.parentOf.delete(childId);
-      const child = this.panels.get(childId);
-      if (child) {
-        child.parentPanelId = null;
-        child.onBindingChanged?.();
-      }
-    }
-
+    this.unbind(panelId);
+    for (const childId of [...(this.childrenOf.get(panelId) ?? [])]) this.unbind(childId);
     this.panels.delete(panelId);
   }
 
   bind(parentId: string, childId: string): void {
-    if (!parentId || !childId || parentId === childId) {
-      return;
-    }
-
+    if (!parentId || !childId || parentId === childId) return;
     const parent = this.panels.get(parentId);
     const child = this.panels.get(childId);
-    if (!parent || !child) {
-      return;
-    }
-
-    // Prevent cycles: the new parent must not already be a descendant of the
-    // child (i.e. the child is an ancestor of the parent).
-    if (this.isAncestor(childId, parentId)) {
-      return;
-    }
+    if (!parent || !child || this.isAncestor(childId, parentId)) return;
 
     const previousParentId = this.parentOf.get(childId);
-    if (previousParentId && previousParentId !== parentId) {
-      this.parentOf.delete(childId);
-      this.childOf.delete(previousParentId);
-    }
-
-    const previousChildId = this.childOf.get(parentId);
-    if (previousChildId && previousChildId !== childId) {
-      this.parentOf.delete(previousChildId);
-      const previousChild = this.panels.get(previousChildId);
-      if (previousChild) {
-        previousChild.parentPanelId = null;
-        previousChild.onBindingChanged?.();
-      }
-    }
-
+    if (previousParentId === parentId) return;
+    if (previousParentId) this.removeChild(previousParentId, childId);
     this.parentOf.set(childId, parentId);
-    this.childOf.set(parentId, childId);
+    let children = this.childrenOf.get(parentId);
+    if (!children) this.childrenOf.set(parentId, children = new Set());
+    children.add(childId);
     child.parentPanelId = parentId;
     child.onBindingChanged?.();
+    if (previousParentId) this.panels.get(previousParentId)?.onBindingChanged?.();
     parent.onBindingChanged?.();
   }
 
   unbind(panelId: string): void {
     const parentId = this.parentOf.get(panelId);
     if (parentId) {
+      this.removeChild(parentId, panelId);
       this.parentOf.delete(panelId);
-      this.childOf.delete(parentId);
       this.panels.get(parentId)?.onBindingChanged?.();
     }
-
     const child = this.panels.get(panelId);
-    if (child) {
+    if (child && child.parentPanelId !== null) {
       child.parentPanelId = null;
       child.onBindingChanged?.();
     }
@@ -141,140 +94,85 @@ export class PanelBindingManager {
     return parentId ? (this.panels.get(parentId) ?? null) : null;
   }
 
+  getChildrenOf(parentId: string): PanelBindingView[] {
+    return [...(this.childrenOf.get(parentId) ?? [])]
+      .map((id) => this.panels.get(id))
+      .filter((view): view is PanelBindingView => Boolean(view?.isAlive()));
+  }
+
   getChildOf(parentId: string): PanelBindingView | null {
-    const childId = this.childOf.get(parentId);
-    return childId ? (this.panels.get(childId) ?? null) : null;
+    return this.getChildrenOf(parentId)[0] ?? null;
   }
 
   hasChild(parentId: string): boolean {
-    return Boolean(this.childOf.get(parentId));
+    return this.getChildrenOf(parentId).length > 0;
   }
 
-  /**
-   * Pushes the parent panel's folder focus down to its bound child, if any.
-   * `explicitPath` is used when the parent's focus moved to a specific folder
-   * (e.g. a folder clicked in the parent tree); otherwise the parent's current
-   * folder path is used. The child only follows when its `followParent` toggle
-   * is ON. The cascade continues one level at a time: the child's own scope
-   * change re-triggers `propagateFrom` for its bound child, and so on down the
-   * chain.
-   */
   propagateFrom(parentId: string, explicitPath?: string | null): void {
     const parent = this.panels.get(parentId);
-    const child = this.getChildOf(parentId);
-    if (!child || !child.isAlive() || !child.followParent) {
-      return;
-    }
-
     const nextPath = explicitPath ?? parent?.getFolderPath() ?? null;
-    if (nextPath === child.getFolderPath()) {
-      return;
+    let changed = false;
+    for (const child of this.getChildrenOf(parentId)) {
+      if (!child.followParent || nextPath === child.getFolderPath()) continue;
+      child.setFolderPath(nextPath, { preserveViewSettings: true });
+      changed = true;
     }
-    child.setFolderPath(nextPath, { preserveViewSettings: true });
-    parent?.onBindingChanged?.();
+    if (changed) parent?.onBindingChanged?.();
   }
 
-  /**
-   * Prunes dead panels, re-links bindings derived from persisted
-   * `parentPanelId` values, and breaks stale bindings whose parent is gone.
-   * Returns whether any binding changed, so callers can decide whether to
-   * persist the corrected state.
-   */
   reconcile(): boolean {
     let changed = false;
-
     for (const [panelId, view] of [...this.panels]) {
       if (!view.isAlive()) {
         this.unregister(panelId);
         changed = true;
         continue;
       }
-
-      if (!view.parentPanelId) {
+      const desiredParentId = view.parentPanelId;
+      if (!desiredParentId) {
+        if (this.parentOf.has(panelId)) { this.unbind(panelId); changed = true; }
         continue;
       }
-
-      const parent = this.panels.get(view.parentPanelId);
-      if (parent && parent.isAlive()) {
-        if (this.parentOf.get(panelId) !== view.parentPanelId) {
-          this.link(view.parentPanelId, panelId);
-          changed = true;
+      const parent = this.panels.get(desiredParentId);
+      if (parent?.isAlive()) {
+        if (this.parentOf.get(panelId) !== desiredParentId) {
+          this.bind(desiredParentId, panelId);
+          changed = this.parentOf.get(panelId) === desiredParentId || changed;
         }
-      } else if (this.parentOf.get(panelId)) {
+      } else if (this.parentOf.has(panelId) || view.parentPanelId) {
         this.unbind(panelId);
         changed = true;
       }
     }
-
-    for (const [childId, parentId] of [...this.parentOf]) {
-      const parent = this.panels.get(parentId);
-      if (!parent || !parent.isAlive()) {
-        this.unbind(childId);
-        changed = true;
-      }
-    }
-
-    for (const view of this.panels.values()) {
-      if (view.isAlive()) {
-        view.onBindingChanged?.();
-      }
-    }
-
+    for (const view of this.panels.values()) if (view.isAlive()) view.onBindingChanged?.();
     return changed;
   }
 
   clear(): void {
     this.panels.clear();
     this.parentOf.clear();
-    this.childOf.clear();
+    this.childrenOf.clear();
   }
 
-  get panelCount(): number {
-    return this.panels.size;
+  get panelCount(): number { return this.panels.size; }
+
+  private removeChild(parentId: string, childId: string): void {
+    const children = this.childrenOf.get(parentId);
+    children?.delete(childId);
+    if (children?.size === 0) this.childrenOf.delete(parentId);
   }
 
-  /**
-   * Returns whether `maybeAncestorId` appears anywhere in `fromPanelId`'s chain
-   * of ancestors (walking `parentOf` upward). Used to reject cyclic bindings.
-   */
   private isAncestor(maybeAncestorId: string, fromPanelId: string): boolean {
     let current = fromPanelId;
-    for (let depth = 0; depth < 1000; depth += 1) {
+    const visited = new Set<string>();
+    while (!visited.has(current)) {
+      visited.add(current);
       const parentId = this.parentOf.get(current);
-      if (!parentId) {
-        return false;
-      }
-      if (parentId === maybeAncestorId) {
-        return true;
-      }
+      if (!parentId) return false;
+      if (parentId === maybeAncestorId) return true;
       current = parentId;
     }
-    return false;
-  }
-
-  private link(parentId: string, childId: string): void {
-    if (!parentId || !childId || parentId === childId) {
-      return;
-    }
-    if (!this.panels.has(parentId) || !this.panels.has(childId)) {
-      return;
-    }
-
-    const existingParentId = this.parentOf.get(childId);
-    if (existingParentId) {
-      if (existingParentId === parentId) {
-        return;
-      }
-      this.childOf.delete(existingParentId);
-    }
-
-    const existingChildId = this.childOf.get(parentId);
-    if (existingChildId && existingChildId !== childId) {
-      this.parentOf.delete(existingChildId);
-    }
-
-    this.parentOf.set(childId, parentId);
-    this.childOf.set(parentId, childId);
+    return true;
   }
 }
 
@@ -324,11 +222,10 @@ export function toggleLinkedViewsHighlight(
     return;
   }
 
-  const other = targetType === "parent"
-    ? manager.getParentOf(sourcePanelId)
-    : manager.getChildOf(sourcePanelId);
-
-  if (other) {
-    applyHighlight(other.leaf ?? other.containerEl ?? other, highlight);
+  const related = targetType === "parent"
+    ? [manager.getParentOf(sourcePanelId)]
+    : manager.getChildrenOf(sourcePanelId);
+  for (const panel of related) {
+    if (panel) applyHighlight(panel.leaf ?? panel.containerEl ?? panel, highlight);
   }
 }

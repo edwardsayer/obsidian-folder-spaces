@@ -14,12 +14,13 @@ import type {
  * - context（脈絡）：受限 2 層資料夾樹（tree / 2 levels / folders）——中間 Bridge 面板。
  * - contents（內容）：扁平全覽（flat / all / all）——終端 child 的現有 flat 群組式總覽。
  * - files（檔案）：遞迴全部檔案清單（flat / all / files）——終端 child，自動 flat。
+ * - items（項目）：單層直屬項目總覽（flat / 1 level / all）——包含資料夾與檔案。
  * - list（清單）：單層直屬檔案清單（flat / 1 level / files）——終端 child，單層純檔案。
  *
  * DepthMode 在 Tree 與 Flat 模式下皆完整生效（Flat 模式依 depthLimit 限制遞迴收集群組的深度）。
  */
 
-export type FolderSpacePresetId = "explorer" | "navigate" | "columns" | "context" | "contents" | "files" | "list";
+export type FolderSpacePresetId = "explorer" | "navigate" | "columns" | "context" | "contents" | "files" | "items" | "list";
 
 export interface FolderSpacePreset {
   id: FolderSpacePresetId;
@@ -42,6 +43,7 @@ export const FOLDER_SPACE_PRESETS: readonly FolderSpacePreset[] = [
   { id: "context", viewMode: "tree", depthMode: "two-level", contentMode: "folders" },
   { id: "contents", viewMode: "flat", depthMode: "all-level", contentMode: "all" },
   { id: "files", viewMode: "flat", depthMode: "all-level", contentMode: "files" },
+  { id: "items", viewMode: "flat", depthMode: "one-level", contentMode: "all" },
   { id: "list", viewMode: "flat", depthMode: "one-level", contentMode: "files" }
 ];
 

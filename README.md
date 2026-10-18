@@ -51,10 +51,10 @@ Chain parent and child Folder Spaces together in your workspace. Navigating fold
 
 ![Cascading Multi-Panel Chaining](assets/screenshots/showcase-cascading-panels.png)
 
-| 🎯 Single-Context Sidebar Focus | ⚙️ 7 View Presets & Flat Mode | 🔍 Header Controls & Live Filter |
+| 🎯 Single-Context Sidebar Focus | ⚙️ 8 View Presets & Flat Mode | 🔍 Header Controls & Live Filter |
 | :---: | :---: | :---: |
 | ![Sidebar Focus](assets/screenshots/showcase-sidebar-focus.png) | ![View Presets & Flat Mode](assets/screenshots/showcase-presets-and-flat-view.png) | ![Header Actions & Live Filter](assets/screenshots/showcase-header-actions.png) |
-| *Dedicated, scoped sidebar explorer with custom icon and zero vault clutter* | *7 tailored presets (Explorer, Navigate, Columns, Context, Contents, Files, List) + Tree/Flat modes* | *Compact single-row header with in-place live filter and instant query matching* |
+| *Dedicated, scoped sidebar explorer with custom icon and zero vault clutter* | *8 tailored presets (Explorer, Navigate, Columns, Context, Contents, Files, Items, List) + Tree/Flat modes* | *Compact single-row header with in-place live filter and instant query matching* |
 
 ---
 
@@ -77,7 +77,7 @@ Chain parent and child Folder Spaces together in your workspace. Navigating fold
 - **Tree & Flat view modes**: toggle between a nested tree and a clean flat list per folder.
 - **Depth control**: expand to 1 level, 2 levels, or all levels — per folder.
 - **Content control**: show folders, files, or all items — per folder.
-- **View presets**: seven named presets that combine view, depth, and content. Apply a preset per panel, or horizontally as a parent panel drives its cascade of children.
+- **View presets**: eight named presets that combine view, depth, and content. Apply a preset per panel, or horizontally as a parent panel drives its cascade of children.
 - **Filter & sort**: filter the current panel by a path substring, and sort by name, modified time, or created time (ascending / descending). Sort order is remembered per folder; the filter is an in-panel, immediate condition.
 - **Smart folder navigation**: non-terminal folders keep native expand/collapse behavior. A terminal folder (for example, one at the selected depth limit or with no visible children) drills down in place; the header status icon becomes an Up-to-parent button.
 - **Workspace restore**: all Folder Space views restore automatically when Obsidian restarts.
@@ -107,7 +107,7 @@ The Folder Space header is a compact single row that keeps the native file actio
 
 ## View Presets Reference
 
-Folder Spaces provides seven named presets combining **View Mode**, **Depth Limit**, and **Content Filter** to match different organizational roles:
+Folder Spaces provides eight named presets combining **View Mode**, **Depth Limit**, and **Content Filter** to match different organizational roles:
 
 | Preset | Style | Depth Limit | Content | Primary Role / Best Use Case |
 | :--- | :---: | :---: | :---: | :--- |
@@ -117,6 +117,7 @@ Folder Spaces provides seven named presets combining **View Mode**, **Depth Limi
 | 🔍 **Context** | Tree | 2 levels | Folders | **Bridge Panel**: Shows 2 levels of folder hierarchy for structural context. |
 | 📑 **Contents** | Flat | All levels | All | **Overview**: Flat list grouped by subfolder with all files visible. |
 | 📄 **Files** | Flat | All levels | Files | **Recursive File List**: Terminal panel showing all files under the tree. |
+| 📦 **Items** | Flat | 1 level | All | **Single-Level Items**: Clean flat overview showing direct subfolders and immediate files without deep recursion. |
 | 📋 **List** | Flat | 1 level | Files | **Direct File List**: Clean flat list showing direct files of the folder. |
 
 ---
@@ -253,7 +254,7 @@ Think of each Folder Space as a **focus room** for one project, topic, or workfl
   - **Default view preset**: The preset applied to new standalone panels.
   - **Disable folder notes in folder-only view**: Keep folder-only navigation focused on hierarchy; Ctrl/Cmd-click can still open a folder note.
 - **Cascade & linking**: Choose the default child-panel preset, auto-apply it, enable adaptive parent mode, choose the parent navigation preset, and set the default follow behavior separately for same-window and new-window child panels.
-- **Preset configurations reference**: The settings page includes a table describing the seven built-in presets and their Tree/Flat, depth, and content dimensions.
+- **Preset configurations reference**: The settings page includes a table describing the eight built-in presets and their Tree/Flat, depth, and content dimensions.
 
 ---
 
