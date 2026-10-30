@@ -25,7 +25,6 @@ Desktop only. Requires Obsidian **1.13.0+**.
 - [Cascading Panel Binding & In-place Drill-down](#cascading-panel-binding--in-place-drill-down)
 - [Installation](#-installation)
 - [Usage & Quick Reference](#usage--quick-reference)
-- [Use Cases & Workflows](#use-cases--workflows)
 - [Settings](#settings)
 - [Developer API](#developer-api)
 - [Compatibility & License](#compatibility--license)
@@ -185,23 +184,11 @@ Folder Space splits folder rows into three distinct hit zones to ensure predicta
 
 ## 📥 Installation
 
-### From Obsidian Community Plugins *(Recommended)*
+### From Obsidian Community Plugins
 1. Open Obsidian **Settings** > **Community plugins**.
 2. Turn off Restricted mode and click **Browse**.
 3. Search for **Folder Spaces**.
 4. Click **Install**, then click **Enable**.
-
-### Via BRAT (Beta Testing)
-1. Install the [BRAT plugin](https://github.com/TfTHacker/obsidian42-brat) from Community Plugins.
-2. Open Command Palette (`Ctrl/Cmd + P`) and run **`BRAT: Add a beta plugin for testing`**.
-3. Enter the repository URL: `https://github.com/edwardsayer/obsidian-folder-spaces`.
-4. Click **Add Plugin** and enable **Folder Spaces** once installed.
-
-### Manual Installation
-1. Download `main.js`, `manifest.json`, and `styles.css` from the latest [GitHub Release](https://github.com/edwardsayer/obsidian-folder-spaces/releases).
-2. Inside your vault, create the plugin folder: `<vault>/.obsidian/plugins/folder-spaces/`.
-3. Copy the downloaded files into this directory.
-4. Reload Obsidian (`Ctrl/Cmd + R`) and enable **Folder Spaces** in **Settings > Community plugins**.
 
 ---
 
@@ -227,21 +214,6 @@ Folder Space splits folder rows into three distinct hit zones to ensure predicta
 | **Filter Path** | Header filter button | Live substring search within current folder scope |
 | **Sort Items** | Header sort button | Sort by Name, Created, or Modified (Ascending / Descending) |
 | **View Settings** | Header settings icon | Switch Tree/Flat, Depth (1/2/All), Content, or Presets |
-
----
-
-## Use Cases & Workflows
-
-Think of each Folder Space as a **focus room** for one project, topic, or workflow:
-
-- **Project workbench** (`Projects/<name>`): Root a Folder Space at the active project. Every spec, note, and resource of that project is one tree away, while unrelated projects stay out of view.
-- **Writing & content** (`Writing/`): Open the writing folder in its own space — use `Contents`/`Files` presets or Flat view to see all drafts as a clean list.
-- **Research & literature** (`Research/`): Isolate a literature or topic folder so reading notes and sources stay in one focused context.
-- **Flat-structure scanning**: For deeply nested folders, switch to Flat view to see every subfolder (labeled with its relative path) and its files in one glance.
-- **Side-by-side reading**: Place a Folder Space in the editor area and enable **Always open in other panel** so normal file clicks open in the adjacent content pane.
-- **Multi-panel cascade**: Chain a `Navigate` (or `Columns`) folder-only navigator → a `Context` bridge → a `Contents`/`Files` terminal to drill through a large structure step by step while keeping each level focused.
-- **Distraction-free deep work**: Open a Folder Space in a new window on a second monitor to keep a task fully separated from the main workspace.
-- **Single-vault, multi-project workspace**: Combine Folder Spaces with Window Spaces — each project gets a folder-scoped explorer and a saved window arrangement, switched like project "rooms".
 
 ---
 

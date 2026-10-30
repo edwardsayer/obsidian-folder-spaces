@@ -25,7 +25,6 @@
 - [多面板级联联动及就地下钻](#多面板级联联动及就地下钻)
 - [安装方式](#-安装方式)
 - [使用方式与操作速查表](#使用方式与操作速查表)
-- [使用场景与工作流](#使用场景与工作流)
 - [设置选项](#设置选项)
 - [开发者 API](#开发者-api-developer-api)
 - [兼容性与许可协议](#兼容性与许可协议)
@@ -185,23 +184,11 @@ Folder Space 将文件夹项目划分为三段独立点击热区，确保操作�
 
 ## 📥 安装方式
 
-### 通过 Obsidian 社区插件市场安装 *(推荐)*
+### 通过 Obsidian 社区插件市场安装
 1. 打开 Obsidian **设置** > **第三方插件**。
 2. 关闭"安全模式"，点击"浏览"。
 3. 搜索 **Folder Spaces**。
 4. 点击 **安装**，完成后点击 **启用**。
-
-### 通过 BRAT 安装测试版 (Beta Testing)
-1. 在社区插件市场中安装 [BRAT 插件](https://github.com/TfTHacker/obsidian42-brat)。
-2. 打开命令面板 (`Ctrl/Cmd + P`)，执行 **`BRAT: Add a beta plugin for testing`**。
-3. 输入仓库地址：`https://github.com/edwardsayer/obsidian-folder-spaces`。
-4. 点击 **Add Plugin**，安装完成后启用 **Folder Spaces**。
-
-### 手动安装
-1. 从最新版 [GitHub Releases](https://github.com/edwardsayer/obsidian-folder-spaces/releases) 下载 `main.js`、`manifest.json` 与 `styles.css`。
-2. 在您的存储库插件目录创建文件夹：`<vault>/.obsidian/plugins/folder-spaces/`。
-3. 将下载的 3 个文件放入该文件夹。
-4. 重载 Obsidian (`Ctrl/Cmd + R`)，并在 **设置 > 第三方插件** 中启用 **Folder Spaces**。
 
 ---
 
@@ -227,21 +214,6 @@ Folder Space 将文件夹项目划分为三段独立点击热区，确保操作�
 | **路径过滤** | 点击标题栏过滤按钮 (`Filter`) | 输入关键字即时过滤当前面板中的路径 |
 | **排序方式** | 点击标题栏排序按钮 (`Sort`) | 按名称、创建日期、修改日期进行升 / 降序排序 |
 | **视图设置** | 点击标题栏设置按钮 | 切换树状 / 扁平、层级限制 (1 / 2 / 全部)、内容过滤或预设 |
-
----
-
-## 使用场景与工作流
-
-把每个 Folder Space 视为一个**专注空间 (Focus Room)**，用于单个项目、主题或工作流程：
-
-- **项目工作区** (`Projects/<name>`)：将 Folder Space 根目录设为当前项目。该项目所有的规格、笔记与资源尽在一棵树中，无关的项目完全不出现在视野中。
-- **写作与内容制作** (`Writing/`)：在自己的空间中打开写作文件夹——使用 `Contents` / `Files` 预设或扁平视图将所有草稿以干净列表呈现。
-- **研究与文献** (`Research/`)：将文献或主题文件夹独立出来，让阅读笔记与来源资料保持在单一专注的上下文。
-- **扁平结构扫描**：对深度嵌套的文件夹，切换到扁平视图即可一眼看到所有子文件夹（标注相对路径）与其中的文件。
-- **左右并读**：将 Folder Space 放在编辑区并启用 **总是在其他面板打开**，普通点击文件即可在相邻内容面板打开。
-- **多面板级联**：串起 `Navigate`（或 `Columns`）纯文件夹导航器 → `Context` 中转 → `Contents` / `Files` 终端，逐步下钻大型结构，同时让每个层级保持专注。
-- **无干扰的深度工作**：在弹出式窗口中打开 Folder Space 并置于副显示器，让任务上下文完全与主工作区分离。
-- **单一存储库多项目工作空间**：将 Folder Spaces 与 Window Spaces 结合。每个项目拥有聚焦于指定文件夹的文件管理器与保存的窗口排列，像项目"房间"一样切换。
 
 ---
 

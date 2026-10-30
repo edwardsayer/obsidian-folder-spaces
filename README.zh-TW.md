@@ -25,7 +25,6 @@
 - [多面板接龍連動及就地下鑽](#多面板接龍連動及就地下鑽)
 - [安裝方式](#-安裝方式)
 - [使用方式與操作速查表](#使用方式與操作速查表)
-- [使用情境與工作流](#使用情境與工作流)
 - [設定選項](#設定選項)
 - [開發者 API](#開發者-api-developer-api)
 - [相容性與授權條款](#相容性與授權條款)
@@ -185,23 +184,11 @@ Folder Space 將資料夾項目劃分為三段獨立點擊熱區，確保操作�
 
 ## 📥 安裝方式
 
-### 透過 Obsidian 社群外掛商店安裝 *(推薦)*
+### 透過 Obsidian 社群外掛商店安裝
 1. 開啟 Obsidian **設定** > **社群外掛**。
 2. 關閉「受限模式」，點擊「瀏覽」。
 3. 搜尋 **Folder Spaces**。
 4. 點擊 **安裝**，完成後點擊 **啟用**。
-
-### 透過 BRAT 安裝測試版 (Beta Testing)
-1. 在社群外掛商店中安裝 [BRAT 外掛](https://github.com/TfTHacker/obsidian42-brat)。
-2. 開啟指令面板 (`Ctrl/Cmd + P`)，執行 **`BRAT: Add a beta plugin for testing`**。
-3. 輸入儲存庫網址：`https://github.com/edwardsayer/obsidian-folder-spaces`。
-4. 點擊 **Add Plugin**，安裝完成後啟用 **Folder Spaces**。
-
-### 手動安裝
-1. 從最新版 [GitHub Releases](https://github.com/edwardsayer/obsidian-folder-spaces/releases) 下載 `main.js`、`manifest.json` 與 `styles.css`。
-2. 在您的儲存庫外掛目錄建立資料夾：`<vault>/.obsidian/plugins/folder-spaces/`。
-3. 將下載的 3 個檔案放入該資料夾。
-4. 重載 Obsidian (`Ctrl/Cmd + R`)，並在 **設定 > 社群外掛** 中啟用 **Folder Spaces**。
 
 ---
 
@@ -227,21 +214,6 @@ Folder Space 將資料夾項目劃分為三段獨立點擊熱區，確保操作�
 | **路徑篩選** | 點擊標題列篩選按鈕 (`Filter`) | 輸入關鍵字即時篩選目前面板中的路徑 |
 | **排序方式** | 點擊標題列排序按鈕 (`Sort`) | 依名稱、建立日期、修改日期進行升 / 降冪排序 |
 | **檢視設定** | 點擊標題列設定按鈕 | 切換樹狀 / 扁平、層級限制 (1 / 2 / 全部)、內容篩選或預設集 |
-
----
-
-## 使用情境與工作流
-
-把每個 Folder Space 視為一個**專注空間 (Focus Room)**，用於單一專案、主題或工作流程：
-
-- **專案工作區** (`Projects/<name>`)：將 Folder Space 根目錄設為目前專案。該專案的所有規格、記事與資源盡在一棵樹中，無關的專案完全不出現在視野中。
-- **寫作與內容製作** (`Writing/`)：在自己的空間中開啟寫作資料夾——使用 `Contents` / `Files` 預設集或扁平檢視將所有草稿以乾淨清單呈現。
-- **研究與文獻** (`Research/`)：將文獻或主題資料夾獨立出來，讓閱讀記事與來源資料保持在單一專注的上下文。
-- **扁平結構掃描**：對深度巢狀的資料夾，切換到扁平檢視即可一眼看到所有子資料夾（標示相對路徑）與其中的檔案。
-- **左右並讀**：將 Folder Space 放在編輯區並啟用 **總是在其他面板開啟**，普通點擊檔案即可在相鄰內容面板開啟。
-- **多面板接龍**：串起 `Navigate`（或 `Columns`）純資料夾導覽器 → `Context` 中繼 → `Contents` / `Files` 終端，逐步下鑽大型結構，同時讓每個層級保持專注。
-- **無干擾的深度工作**：在彈出式視窗中開啟 Folder Space 並置於副螢幕，讓任務上下文完全與主工作區分離。
-- **單一儲存庫多專案工作空間**：將 Folder Spaces 與 Window Spaces 結合。每個專案擁有聚焦於指定資料夾的檔案總管與保存的視窗排列，像專案「房間」一樣切換。
 
 ---
 
