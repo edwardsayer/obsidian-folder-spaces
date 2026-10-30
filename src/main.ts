@@ -27,6 +27,7 @@ import {
   makeFolderSpaceLeafProtected,
   makeNavigable,
   makePopoutViewsProtected,
+  refreshFolderSpaceStatusIcon,
   resolveClickedFolderPath,
   updateFolderSpaceLeafTooltip
 } from "./folder-space-explorer.js";
@@ -734,6 +735,10 @@ export default class FolderSpacesPlugin extends Plugin {
       const icon = this.getFolderSpaceIcon(folderPath);
       view.icon = icon;
       refreshLeafHeader(leaf);
+      // 路徑列左側狀態圖示（未 bound 時即 per-folder icon）也必須同步刷新。
+      if (isFolderSpaceView(view as View)) {
+        refreshFolderSpaceStatusIcon(view);
+      }
     }
   }
 

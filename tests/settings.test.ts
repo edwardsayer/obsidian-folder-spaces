@@ -15,16 +15,10 @@ import {
   pruneOrphanFolderSettings
 } from "../src/settings.js";
 
-// Node 測試環境以 globalThis 作為目前視窗，模擬 Obsidian 的 window API。
-const globalWithWindow = globalThis as unknown as { window?: unknown };
-globalWithWindow.window ??= globalThis;
-const testWindow = globalWithWindow.window;
-(testWindow as { getIconIds?: () => string[] }).getIconIds = () => [
-  "lucide-folders",
-  "lucide-rocket",
-  "lucide-star",
-  "lucide-folder"
-];
+// Node 測試環境以 globalThis 模擬 Obsidian 的 icon registry（`getIconIds` 由 obsidian 模組提供）。
+const mockGlobal = globalThis as unknown as { __mockObsidianIconIds?: string[] | (() => string[]) };
+const TEST_ICON_IDS = ["lucide-folders", "lucide-rocket", "lucide-star", "lucide-folder"];
+mockGlobal.__mockObsidianIconIds = TEST_ICON_IDS;
 
 test("normalizeSettings merges defaults and normalizes folder icons", () => {
   const settings = normalizeSettings({
@@ -57,6 +51,32 @@ test("normalizeSettings tolerates null folder icons data", () => {
   const settings = normalizeSettings({ folderIcons: null });
 
   assert.deepEqual(settings.folderIcons, {});
+});
+
+// 回歸測試（GitHub issue #2）：Obsidian 未把 getIconIds 掛到 window，舊實作取不到
+// registry 就一律回 DEFAULT_VIEW_ICON，導致圖示永遠無法變更（連既有設定也被清空）。
+// registry 不可用時必須 fail-open，保留使用者設定。
+test("keeps folder icons when the icon registry is unavailable", () => {
+  mockGlobal.__mockObsidianIconIds = [];
+
+  const settings = normalizeSettings({
+    folderIcons: { Projects: "lucide-rocket" }
+  });
+
+  assert.equal(settings.folderIcons["Projects"], "lucide-rocket");
+  assert.equal(resolveViewIcon("lucide-rocket"), "lucide-rocket");
+
+  mockGlobal.__mockObsidianIconIds = TEST_ICON_IDS;
+});
+
+test("keeps folder icons when the icon registry throws", () => {
+  mockGlobal.__mockObsidianIconIds = () => {
+    throw new Error("icon registry unavailable");
+  };
+
+  assert.equal(resolveViewIcon("lucide-rocket"), "lucide-rocket");
+
+  mockGlobal.__mockObsidianIconIds = TEST_ICON_IDS;
 });
 
 test("normalizeSettings defaults open location per window", () => {

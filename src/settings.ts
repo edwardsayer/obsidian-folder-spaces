@@ -1,4 +1,6 @@
 import type { FolderSpaceViewMode, FolderSpaceDepthMode, FolderSpaceContentMode } from "./compatibility-helpers.js";
+import { getIconIds } from "obsidian";
+
 import type { FolderSpacePresetId } from "./presets.js";
 import { resolvePresetId, resolveCascadeParentPresetId } from "./presets.js";
 import type { FolderSpaceSortOrder } from "./folder-space-sort-filter.js";
@@ -176,18 +178,29 @@ function getSettingsObject(data: unknown): LegacyFolderSpacesSettings {
 }
 
 function isValidViewIcon(iconName: string): boolean {
-  return getObsidianIconIds().includes(iconName);
+  const iconIds = getObsidianIconIds();
+  // 取不到 icon registry 時 fail-open：不能因為「無法驗證」就把使用者的設定丟掉
+  // （issue #2：過去的 window.getIconIds 永遠 undefined，導致所有 icon 被靜默清除）。
+  if (!iconIds || iconIds.length === 0) {
+    return true;
+  }
+  return iconIds.includes(iconName);
 }
 
+/**
+ * 讀取 Obsidian icon registry。
+ *
+ * `getIconIds` 是公開 API，但只從 `obsidian` 模組匯出，Obsidian 並未把它掛到
+ * `window`（實機 Obsidian 1.14.5：`typeof window.getIconIds === "undefined"`），
+ * 因此必須走模組匯入。
+ */
 function getObsidianIconIds(): string[] {
-  // INTERNAL API: getIconIds - Obsidian 全域 API；
-  // Electron 中優先使用目前視窗，避免跨 popout 視窗誤取全域物件。
-  type ObsidianIconApi = { getIconIds?: () => string[] };
-  const api = typeof window !== "undefined" ? (window as unknown as ObsidianIconApi) : null;
-  if (typeof api?.getIconIds === "function") {
-    return api.getIconIds();
+  try {
+    const ids = getIconIds?.();
+    return Array.isArray(ids) ? ids : [];
+  } catch {
+    return [];
   }
-  return [];
 }
 
 function normalizeFolderIcons(data: unknown): Record<string, string> {

@@ -2491,6 +2491,15 @@ function updateFollowParentButton(view: PatchedExplorerView): void {
   }
 }
 
+/**
+ * 同步路徑列左側狀態圖示（未 bound 時顯示 per-folder icon）。
+ * 設定變更後（例如變更 folder icon）須主動刷新，否則圖示會停在舊值，
+ * 使用者會覺得「改了沒反應」（GitHub issue #2）。
+ */
+export function refreshFolderSpaceStatusIcon(view: unknown): void {
+  updateFollowParentButton(view as PatchedExplorerView);
+}
+
 
 async function createFolderSpaceFile(
   view: PatchedExplorerView,

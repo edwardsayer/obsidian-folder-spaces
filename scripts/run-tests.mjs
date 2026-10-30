@@ -35,6 +35,12 @@ try {
 export const moment = {
   locale: () => (typeof globalThis.__mockMomentLocale === "string" ? globalThis.__mockMomentLocale : "en")
 };
+export function getIconIds() {
+  if (typeof globalThis.__mockObsidianIconIds === "function") {
+    return globalThis.__mockObsidianIconIds();
+  }
+  return Array.isArray(globalThis.__mockObsidianIconIds) ? globalThis.__mockObsidianIconIds : [];
+}
 `,
     "utf8"
   );
