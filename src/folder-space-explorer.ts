@@ -1462,11 +1462,20 @@ function showSortOrderMenu(view: PatchedExplorerView, anchorEl: HTMLElement): vo
       // 原生 File Explorer 的 autoRevealFile 本身就是 per-view，且已由原生
       // getState/setState（state key `autoReveal`）持久化；改用原生 setter 並
       // 要求存 layout，否則切換不會寫回 workspace.json。
+      // 注意：原生 setAutoReveal 會去存取 autoRevealButtonEl，該按鈕不存在時
+      // （原生 header 尚未建立／已被我們隱藏）會丟錯，因此需要 fallback。
       const nextValue = !view.autoRevealFile;
       const nativeView = view as unknown as { setAutoReveal?(value: boolean): void };
+      let applied = false;
       if (typeof nativeView.setAutoReveal === "function") {
-        nativeView.setAutoReveal(nextValue);
-      } else {
+        try {
+          nativeView.setAutoReveal(nextValue);
+          applied = view.autoRevealFile === nextValue;
+        } catch {
+          applied = false;
+        }
+      }
+      if (!applied) {
         view.autoRevealFile = nextValue;
       }
       if (view.autoRevealFile && typeof view.revealActiveFile === "function") {
