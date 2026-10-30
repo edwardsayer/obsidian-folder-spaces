@@ -14,13 +14,13 @@ export type FolderSpaceDefaultOpenLocation = Exclude<FolderSpaceLocation, "windo
 
 /**
  * Fixed default icon for Folder Space tabs and menu entries. It is part of the
- * product identity and is intentionally not user-configurable; only per-folder
- * icons (from the header bar) can be customized.
+ * product identity and is not configurable. Individual panels can have their own
+ * icon, which lives in the panel's view state (see `view-scoped-settings.ts`)
+ * rather than in settings keyed by folder path.
  */
 export const DEFAULT_VIEW_ICON = "lucide-folders";
 
 export interface FolderSpacesSettings {
-  folderIcons: Record<string, string>;
   defaultOpenLocationMain: FolderSpaceDefaultOpenLocation;
   defaultOpenLocationPopout: FolderSpaceDefaultOpenLocation;
   defaultViewMode: FolderSpaceViewMode;
@@ -33,12 +33,10 @@ export interface FolderSpacesSettings {
   defaultChildPreset: FolderSpacePresetId;
   adaptiveCascadeParent: boolean;
   cascadeParentPreset: FolderSpacePresetId;
-  folderSortOrders: Record<string, FolderSpaceSortOrder>;
   alwaysOpenInOtherPanel: boolean;
 }
 
 export const DEFAULT_SETTINGS: FolderSpacesSettings = {
-  folderIcons: {},
   defaultOpenLocationMain: "right-sidebar",
   defaultOpenLocationPopout: "left-sidebar",
   defaultViewMode: "tree",
@@ -51,7 +49,6 @@ export const DEFAULT_SETTINGS: FolderSpacesSettings = {
   defaultChildPreset: "contents",
   adaptiveCascadeParent: true,
   cascadeParentPreset: "navigate",
-  folderSortOrders: {},
   alwaysOpenInOtherPanel: true
 };
 
@@ -59,7 +56,6 @@ export function normalizeSettings(data: unknown): FolderSpacesSettings {
   const settings = getSettingsObject(data);
 
   return {
-    folderIcons: normalizeFolderIcons(settings.folderIcons),
     ...resolveOpenLocations(settings),
     defaultViewMode: resolveViewMode(settings.defaultViewMode),
     defaultDepthMode: resolveDepthMode(settings.defaultDepthMode),
@@ -80,7 +76,6 @@ export function normalizeSettings(data: unknown): FolderSpacesSettings {
       settings.cascadeParentPreset,
       DEFAULT_SETTINGS.cascadeParentPreset
     ),
-    folderSortOrders: normalizeFolderSortOrders(settings.folderSortOrders),
     alwaysOpenInOtherPanel: normalizeBoolean(
       settings.alwaysOpenInOtherPanel,
       DEFAULT_SETTINGS.alwaysOpenInOtherPanel
@@ -88,7 +83,28 @@ export function normalizeSettings(data: unknown): FolderSpacesSettings {
   };
 }
 
-function normalizeFolderSortOrders(data: unknown): Record<string, FolderSpaceSortOrder> {
+/** 舊版 `data.json` 中以資料夾路徑為 key 的設定內容。 */
+export interface LegacyFolderScopedSettings {
+  folderIcons: Record<string, string>;
+  folderSortOrders: Record<string, FolderSpaceSortOrder>;
+}
+
+/**
+ * 讀取舊版以資料夾路徑為 key 的設定（icon／排序）。
+ *
+ * v0.5.x 以前 icon 與排序都存在 `data.json`（`folderIcons[folderPath]`、
+ * `folderSortOrders[folderPath]`）。現在這兩項屬於 panel（view state），
+ * 此函式只作為升級時的一次性 fallback，不再寫回。
+ */
+export function readLegacyFolderScopedSettings(data: unknown): LegacyFolderScopedSettings {
+  const raw = data && typeof data === "object" ? (data as Record<string, unknown>) : {};
+  return {
+    folderIcons: normalizeLegacyFolderIcons(raw.folderIcons),
+    folderSortOrders: normalizeLegacyFolderSortOrders(raw.folderSortOrders)
+  };
+}
+
+function normalizeLegacyFolderSortOrders(data: unknown): Record<string, FolderSpaceSortOrder> {
   if (!data || typeof data !== "object") {
     return {};
   }
@@ -203,7 +219,7 @@ function getObsidianIconIds(): string[] {
   }
 }
 
-function normalizeFolderIcons(data: unknown): Record<string, string> {
+function normalizeLegacyFolderIcons(data: unknown): Record<string, string> {
   if (!data || typeof data !== "object") {
     return {};
   }
@@ -232,94 +248,5 @@ export function resolveContentMode(mode: unknown): FolderSpaceContentMode {
     return mode;
   }
   return "all";
-}
-
-/**
- * 當資料夾更名或搬移時，將個別資料夾設定字典中的路徑 key（含子目錄）遷移至新路徑。
- */
-export function migrateFolderPathInSettings(
-  settings: FolderSpacesSettings,
-  oldPath: string,
-  newPath: string
-): boolean {
-  if (!oldPath || !newPath || oldPath === newPath) {
-    return false;
-  }
-
-  let changed = false;
-  const migrateMap = <T>(map: Record<string, T> | undefined) => {
-    if (!map) return;
-    for (const key of Object.keys(map)) {
-      const val = map[key];
-      if (val === undefined) continue;
-      if (key === oldPath) {
-        map[newPath] = val;
-        delete map[key];
-        changed = true;
-      } else if (key.startsWith(`${oldPath}/`)) {
-        const suffix = key.slice(oldPath.length);
-        map[`${newPath}${suffix}`] = val;
-        delete map[key];
-        changed = true;
-      }
-    }
-  };
-
-  migrateMap(settings.folderIcons);
-  migrateMap(settings.folderSortOrders);
-
-  return changed;
-}
-
-/**
- * 當資料夾被刪除時，將個別資料夾設定字典中的路徑 key（含子目錄）清理刪除。
- */
-export function pruneFolderPathFromSettings(
-  settings: FolderSpacesSettings,
-  deletedPath: string
-): boolean {
-  if (!deletedPath) {
-    return false;
-  }
-
-  let changed = false;
-  const pruneMap = <T>(map: Record<string, T> | undefined) => {
-    if (!map) return;
-    for (const key of Object.keys(map)) {
-      if (key === deletedPath || key.startsWith(`${deletedPath}/`)) {
-        delete map[key];
-        changed = true;
-      }
-    }
-  };
-
-  pruneMap(settings.folderIcons);
-  pruneMap(settings.folderSortOrders);
-
-  return changed;
-}
-
-/**
- * 清理不存在於當前 Vault 實體資料夾清單中的孤兒設定（在設定頁載入時呼叫）。
- */
-export function pruneOrphanFolderSettings(
-  settings: FolderSpacesSettings,
-  existingFolderPaths: Set<string>
-): boolean {
-  let changed = false;
-  const pruneMap = <T>(map: Record<string, T> | undefined) => {
-    if (!map) return;
-    for (const path of Object.keys(map)) {
-      if (path !== "" && !existingFolderPaths.has(path)) {
-        delete map[path];
-        changed = true;
-      }
-    }
-  };
-
-  pruneMap(settings.folderIcons);
-  pruneMap(settings.folderSortOrders);
-
-  return changed;
 }
 

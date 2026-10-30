@@ -10,9 +10,7 @@ import {
   resolveViewIcon,
   resolveDepthMode,
   resolveContentMode,
-  migrateFolderPathInSettings,
-  pruneFolderPathFromSettings,
-  pruneOrphanFolderSettings
+  readLegacyFolderScopedSettings
 } from "../src/settings.js";
 
 // Node 測試環境以 globalThis 模擬 Obsidian 的 icon registry（`getIconIds` 由 obsidian 模組提供）。
@@ -20,50 +18,63 @@ const mockGlobal = globalThis as unknown as { __mockObsidianIconIds?: string[] |
 const TEST_ICON_IDS = ["lucide-folders", "lucide-rocket", "lucide-star", "lucide-folder"];
 mockGlobal.__mockObsidianIconIds = TEST_ICON_IDS;
 
-test("normalizeSettings merges defaults and normalizes folder icons", () => {
+test("normalizeSettings no longer carries per-folder path maps", () => {
   const settings = normalizeSettings({
+    folderIcons: { "Projects/Active": "lucide-rocket" },
+    folderSortOrders: { "Projects/Active": { key: "mtime", dir: "desc" } }
+  });
+
+  // icon／排序現在屬於 panel（view state），不再是 settings 的一部分
+  assert.equal("folderIcons" in settings, false);
+  assert.equal("folderSortOrders" in settings, false);
+});
+
+test("readLegacyFolderScopedSettings normalizes legacy path maps for one-time migration", () => {
+  const legacy = readLegacyFolderScopedSettings({
     folderIcons: {
       "Projects/Active": "lucide-rocket",
       "Projects/Archive": "not-a-real-icon",
       "": "lucide-folder",
-      "  Projects/Empty  ": "  lucide-star  "
+      "  Projects/Empty  ": "  lucide-star  ",
+      "Projects/Default": "lucide-folders"
+    },
+    folderSortOrders: {
+      "Projects/Active": { key: "mtime", dir: "desc" },
+      "Projects/Broken": { key: "size", dir: "desc" }
     }
   });
 
-  assert.equal(settings.folderIcons["Projects/Active"], "lucide-rocket");
-  assert.equal(settings.folderIcons["Projects/Empty"], "lucide-star");
-  assert.equal("Projects/Archive" in settings.folderIcons, false);
-  assert.equal("" in settings.folderIcons, false);
-  assert.equal("not-a-real-icon" in settings.folderIcons, false);
+  assert.equal(legacy.folderIcons["Projects/Active"], "lucide-rocket");
+  assert.equal(legacy.folderIcons["Projects/Empty"], "lucide-star");
+  assert.equal("Projects/Archive" in legacy.folderIcons, false);
+  assert.equal("" in legacy.folderIcons, false);
+  assert.equal("not-a-real-icon" in legacy.folderIcons, false);
+  // 等於預設 icon 的條目不需要遷移
+  assert.equal("Projects/Default" in legacy.folderIcons, false);
+
+  assert.deepEqual(legacy.folderSortOrders["Projects/Active"], { key: "mtime", dir: "desc" });
+  assert.equal("Projects/Broken" in legacy.folderSortOrders, false);
 });
 
-test("normalizeSettings drops folder icons equal to the default icon", () => {
-  const settings = normalizeSettings({
-    folderIcons: {
-      "Projects/Active": "lucide-folders"
-    }
+test("readLegacyFolderScopedSettings tolerates missing or invalid data", () => {
+  assert.deepEqual(readLegacyFolderScopedSettings(null), { folderIcons: {}, folderSortOrders: {} });
+  assert.deepEqual(readLegacyFolderScopedSettings({ folderIcons: null }), {
+    folderIcons: {},
+    folderSortOrders: {}
   });
-
-  assert.deepEqual(settings.folderIcons, {});
-});
-
-test("normalizeSettings tolerates null folder icons data", () => {
-  const settings = normalizeSettings({ folderIcons: null });
-
-  assert.deepEqual(settings.folderIcons, {});
 });
 
 // 回歸測試（GitHub issue #2）：Obsidian 未把 getIconIds 掛到 window，舊實作取不到
 // registry 就一律回 DEFAULT_VIEW_ICON，導致圖示永遠無法變更（連既有設定也被清空）。
 // registry 不可用時必須 fail-open，保留使用者設定。
-test("keeps folder icons when the icon registry is unavailable", () => {
+test("keeps icons when the icon registry is unavailable", () => {
   mockGlobal.__mockObsidianIconIds = [];
 
-  const settings = normalizeSettings({
+  const legacy = readLegacyFolderScopedSettings({
     folderIcons: { Projects: "lucide-rocket" }
   });
 
-  assert.equal(settings.folderIcons["Projects"], "lucide-rocket");
+  assert.equal(legacy.folderIcons["Projects"], "lucide-rocket");
   assert.equal(resolveViewIcon("lucide-rocket"), "lucide-rocket");
 
   mockGlobal.__mockObsidianIconIds = TEST_ICON_IDS;
@@ -177,28 +188,6 @@ test("resolveViewIcon returns configured icon or falls back to the fixed default
   assert.equal(resolveViewIcon(null), DEFAULT_VIEW_ICON);
 });
 
-test("folderIcons resolves folder specific icon with fallback to the fixed default icon", () => {
-  const settings = normalizeSettings({
-    folderIcons: {
-      "Projects/Active": "lucide-rocket"
-    }
-  });
-
-  const getIcon = (path?: string | null) => {
-    if (path) {
-      const folderIcon = settings.folderIcons[path];
-      if (folderIcon) {
-        return resolveViewIcon(folderIcon);
-      }
-    }
-    return DEFAULT_VIEW_ICON;
-  };
-
-  assert.equal(getIcon("Projects/Active"), "lucide-rocket");
-  assert.equal(getIcon("Projects/Other"), DEFAULT_VIEW_ICON);
-  assert.equal(getIcon(null), DEFAULT_VIEW_ICON);
-});
-
 test("resolveDepthMode returns valid depth mode or falls back to all-level", () => {
   assert.equal(resolveDepthMode("one-level"), "one-level");
   assert.equal(resolveDepthMode("two-level"), "two-level");
@@ -261,94 +250,3 @@ test("normalizeSettings defaults and normalizes view presets", () => {
   assert.equal(invalid.cascadeParentPreset, "navigate");
 });
 
-test("normalizeSettings defaults and normalizes per-folder sort orders", () => {
-  const defaults = normalizeSettings({});
-  assert.deepEqual(defaults.folderSortOrders, {});
-
-  const custom = normalizeSettings({
-    folderSortOrders: {
-      "Projects/Active": { key: "mtime", dir: "desc" },
-      "Projects/Archive": { key: "size", dir: "asc" },
-      "": { key: "name", dir: "asc" },
-      "  Projects/Empty  ": { key: "ctime", dir: "asc" }
-    }
-  });
-  assert.deepEqual(custom.folderSortOrders["Projects/Active"], { key: "mtime", dir: "desc" });
-  assert.equal("Projects/Archive" in custom.folderSortOrders, false);
-  assert.equal("" in custom.folderSortOrders, false);
-  assert.deepEqual(custom.folderSortOrders["Projects/Empty"], { key: "ctime", dir: "asc" });
-});
-
-test("migrateFolderPathInSettings renames paths and subpaths across all per-folder maps", () => {
-  const settings = normalizeSettings({
-    folderIcons: {
-      "Projects/Alpha": "lucide-rocket",
-      "Projects/Alpha/Sub": "lucide-star",
-      "Notes": "lucide-folder"
-    },
-    folderSortOrders: {
-      "Projects/Alpha": { key: "mtime", dir: "desc" }
-    }
-  });
-
-  const changed = migrateFolderPathInSettings(settings, "Projects/Alpha", "Projects/Beta");
-  assert.equal(changed, true);
-
-  // Exact match and subpath migrated
-  assert.equal(settings.folderIcons["Projects/Beta"], "lucide-rocket");
-  assert.equal(settings.folderIcons["Projects/Beta/Sub"], "lucide-star");
-  assert.equal("Projects/Alpha" in settings.folderIcons, false);
-  assert.equal("Projects/Alpha/Sub" in settings.folderIcons, false);
-  assert.equal(settings.folderIcons["Notes"], "lucide-folder");
-
-  assert.deepEqual(settings.folderSortOrders["Projects/Beta"], { key: "mtime", dir: "desc" });
-
-  // No-op for non-existent path
-  assert.equal(migrateFolderPathInSettings(settings, "NonExistent", "NewNonExistent"), false);
-});
-
-test("pruneFolderPathFromSettings deletes paths and subpaths across all per-folder maps", () => {
-  const settings = normalizeSettings({
-    folderIcons: {
-      "Projects/Alpha": "lucide-rocket",
-      "Projects/Alpha/Sub": "lucide-star",
-      "Notes": "lucide-folder"
-    },
-    folderSortOrders: {
-      "Projects/Alpha": { key: "mtime", dir: "desc" }
-    }
-  });
-
-  const changed = pruneFolderPathFromSettings(settings, "Projects/Alpha");
-  assert.equal(changed, true);
-
-  assert.equal("Projects/Alpha" in settings.folderIcons, false);
-  assert.equal("Projects/Alpha/Sub" in settings.folderIcons, false);
-  assert.equal("Projects/Alpha" in settings.folderSortOrders, false);
-  assert.equal(settings.folderIcons["Notes"], "lucide-folder");
-
-  // No-op for non-existent path
-  assert.equal(pruneFolderPathFromSettings(settings, "NonExistent"), false);
-});
-
-test("pruneOrphanFolderSettings prunes non-existing folder entries across all maps", () => {
-  const settings = normalizeSettings({
-    folderIcons: {
-      "Projects/Active": "lucide-rocket",
-      "Projects/Deleted": "lucide-star",
-      "": "lucide-folders"
-    },
-    folderSortOrders: {
-      "Projects/Active": { key: "mtime", dir: "desc" },
-      "Projects/Ghost": { key: "ctime", dir: "asc" }
-    }
-  });
-
-  const existing = new Set(["Projects/Active", "OtherFolder"]);
-  const changed = pruneOrphanFolderSettings(settings, existing);
-  assert.equal(changed, true);
-
-  assert.equal("Projects/Active" in settings.folderIcons, true);
-  assert.equal("Projects/Deleted" in settings.folderIcons, false);
-  assert.equal("Projects/Ghost" in settings.folderSortOrders, false);
-});

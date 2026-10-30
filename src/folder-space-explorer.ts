@@ -85,6 +85,12 @@ import {
   type FolderNotesPluginSettings
 } from "./folder-note-compat.js";
 
+import {
+  DEFAULT_VIEW_ICON,
+  normalizeViewScopedIcon,
+  normalizeViewScopedSortOrder
+} from "./view-scoped-settings.js";
+
 import { FOLDER_SPACES_VIEW_TYPE } from "./api.js";
 export { FOLDER_SPACES_VIEW_TYPE };
 const FILE_EXPLORER_VIEW_TYPE = "file-explorer";
@@ -94,15 +100,15 @@ type ViewCreator = (leaf: WorkspaceLeaf) => View;
 const panelActivityTrackers = new WeakMap<App["workspace"], PanelActivityTracker>();
 
 export interface FolderSpaceViewOptions {
-  getIcon(): string;
-  getFolderIcon?(folderPath: string | null): string;
+  /** 舊版 per-folder 設定的一次性遷移來源（view state 尚無值時才使用）。 */
+  getViewScopedDefaults?(folderPath: string | null): {
+    icon?: string | null;
+    sortOrder?: unknown;
+  } | null;
   getDefaultViewMode?(): FolderSpaceViewMode;
   getDefaultDepthMode?(): FolderSpaceDepthMode;
   getDefaultContentMode?(): FolderSpaceContentMode;
   getDefaultChildPreset?(): FolderSpacePresetId;
-  getFolderSortOrder?(folderPath: string): FolderSpaceSortOrder | null;
-  setFolderSortOrder?(folderPath: string, order: FolderSpaceSortOrder): void | Promise<void>;
-  setFolderIcon?(folderPath: string, icon: string): void | Promise<void>;
   openSearchInWindow?(this: void, win: Window, query: string): Promise<WorkspaceLeaf>;
   bindingManager?: PanelBindingManager;
   onContextMenuOpen?(leaf: WorkspaceLeaf): void;
@@ -218,9 +224,14 @@ interface PatchedExplorerView extends InternalExplorerView {
   getDefaultDepthMode(): FolderSpaceDepthMode;
   getDefaultContentMode(): FolderSpaceContentMode;
   getDefaultChildPreset(): FolderSpacePresetId;
-  getFolderSortOrder(folderPath: string): FolderSpaceSortOrder | null;
-  setFolderSortOrder(folderPath: string, order: FolderSpaceSortOrder): void | Promise<void>;
-  setFolderIcon(folderPath: string, icon: string): void | Promise<void>;
+  /**
+   * panel 自己的排序設定。刻意不叫 `sortOrder`：原生 File Explorer 已有
+   * `sortOrder`（string，例如 "alphabetical"）與同名 view state key，撞名會被
+   * 原生 setState 覆蓋。
+   */
+  folderSpaceSortOrder: FolderSpaceSortOrder | null;
+  setSortOrder(order: FolderSpaceSortOrder): void;
+  setIcon(icon: string): void;
   filterQuery: string;
   sortButtonEl?: HTMLElement;
   filterButtonEl?: HTMLElement;
@@ -328,9 +339,7 @@ class RootFolderPickerModal extends FolderPickerModal {
 }
 
 export function createFolderSpaceView(app: App, leaf: WorkspaceLeaf): View {
-  return createFolderSpaceViewWithOptions(app, leaf, {
-    getIcon: () => "lucide-folders"
-  });
+  return createFolderSpaceViewWithOptions(app, leaf, {});
 }
 
 export function createFolderSpaceViewWithOptions(
@@ -622,8 +631,11 @@ function patchExplorerView(
   const originalOnDelete = view.onDelete.bind(view);
   const originalAfterCreate = view.afterCreate?.bind(view);
 
+  // per-panel 設定（icon／排序）屬於這個 view；初始值在 applyInitialViewState
+  // 或 setState 由 leaf view state 還原，此處只先給出廠預設。
+  view.icon = DEFAULT_VIEW_ICON;
+  view.folderSpaceSortOrder = null;
   initializeEmptyState(view);
-  view.icon = getFolderSpaceIcon(options, view.folderPath);
   makeNavigable(view);
   if (view.leaf) {
     makeFolderSpaceLeafProtected(view.leaf);
@@ -673,15 +685,13 @@ function patchExplorerView(
   view.getDefaultDepthMode = () => normalizeDepthMode(options.getDefaultDepthMode?.());
   view.getDefaultContentMode = () => normalizeContentMode(options.getDefaultContentMode?.());
   view.getDefaultChildPreset = () => resolvePresetId(options.getDefaultChildPreset?.(), "contents");
-  view.getFolderSortOrder = (folderPath: string) => normalizeOptionalSortOrder(options.getFolderSortOrder?.(folderPath));
-  view.setFolderSortOrder = (folderPath: string, order: FolderSpaceSortOrder) =>
-    options.setFolderSortOrder?.(folderPath, order);
-  view.setFolderIcon = (folderPath: string, icon: string) => options.setFolderIcon?.(folderPath, icon);
+  view.setIcon = (icon: string) => setViewIcon(view, icon);
+  view.setSortOrder = (order: FolderSpaceSortOrder) => setViewSortOrder(view, order);
   view.openSearchInWindow = options.openSearchInWindow;
   view.getFolderNotesSettings = () => options.getFolderNotesSettings?.() ?? null;
   view.getAlwaysOpenInOtherPanel = () => options.getAlwaysOpenInOtherPanel?.() ?? true;
   view.getViewType = () => FOLDER_SPACES_VIEW_TYPE;
-  view.getIcon = () => getFolderSpaceIcon(options, view.folderPath);
+  view.getIcon = () => view.icon || DEFAULT_VIEW_ICON;
 
   view.getDisplayText = () => {
     return getFolderSpaceTitle(view.app, view.folderPath);
@@ -728,6 +738,10 @@ function patchExplorerView(
     viewMode: view.viewMode,
     depthMode: view.depthMode,
     contentMode: view.contentMode,
+    // 命名空間化：原生 File Explorer 的 view state 也含 sortOrder／autoReveal，
+    // 用專屬 key 才不會互相覆蓋。
+    folderSpaceIcon: view.icon,
+    folderSpaceSortOrder: view.folderSpaceSortOrder,
     panelId: view.panelId,
     parentPanelId: view.parentPanelId,
     followParent: view.followParent
@@ -771,7 +785,14 @@ function patchExplorerView(
       }
       view.followParent =
         typeof nextState.followParent === "boolean" ? nextState.followParent : true;
-      view.icon = getFolderSpaceIcon(options, view.folderPath);
+      const scopedDefaults = options.getViewScopedDefaults?.(nextState.folderPath) ?? null;
+      view.icon = normalizeViewScopedIcon(nextState.folderSpaceIcon, scopedDefaults?.icon);
+      view.folderSpaceSortOrder = normalizeViewScopedSortOrder(
+        nextState.folderSpaceSortOrder,
+        scopedDefaults?.sortOrder
+      );
+      delete nextState.folderSpaceIcon;
+      delete nextState.folderSpaceSortOrder;
       await originalSetState(nextState, result);
       // 原生 setState 後再次中和 search 並確保項目可見
       view.searchQuery = null;
@@ -799,7 +820,7 @@ function patchExplorerView(
 
   view.load = () => {
     // 先套用 leaf view state 中的初始 folderPath 與過濾狀態
-    applyInitialViewState(view);
+    applyInitialViewState(view, options);
     originalLoad();
     view.searchQuery = null;
     if (view.search) {
@@ -1236,14 +1257,8 @@ function openFolderIconPicker(view: PatchedExplorerView): void {
     return;
   }
 
-  new IconPickerModal(view.app, view.getIcon(), async (icon) => {
-    const folderPath = view.folderPath;
-    if (folderPath === null) {
-      return;
-    }
-    await view.setFolderIcon(folderPath, icon);
-    view.icon = view.getIcon();
-    refreshLeafHeader(view);
+  new IconPickerModal(view.app, view.getIcon(), (icon) => {
+    view.setIcon(icon);
   }).open();
 }
 
@@ -1427,11 +1442,7 @@ function showSortOrderMenu(view: PatchedExplorerView, anchorEl: HTMLElement): vo
       item.setTitle(option.label);
       item.setChecked(current.key === option.order.key && current.dir === option.order.dir);
       item.onClick(() => {
-        if (view.folderPath !== null) {
-          void view.setFolderSortOrder(view.folderPath, option.order);
-        }
-        updateSortButtonIcon(view);
-        view.requestSort();
+        view.setSortOrder(option.order);
       });
     });
   }
@@ -1448,10 +1459,20 @@ function showSortOrderMenu(view: PatchedExplorerView, anchorEl: HTMLElement): vo
     item.setTitle(t("actionAutoRevealCurrentFile"));
     item.setChecked(view.autoRevealFile);
     item.onClick(() => {
-      view.autoRevealFile = !view.autoRevealFile;
+      // 原生 File Explorer 的 autoRevealFile 本身就是 per-view，且已由原生
+      // getState/setState（state key `autoReveal`）持久化；改用原生 setter 並
+      // 要求存 layout，否則切換不會寫回 workspace.json。
+      const nextValue = !view.autoRevealFile;
+      const nativeView = view as unknown as { setAutoReveal?(value: boolean): void };
+      if (typeof nativeView.setAutoReveal === "function") {
+        nativeView.setAutoReveal(nextValue);
+      } else {
+        view.autoRevealFile = nextValue;
+      }
       if (view.autoRevealFile && typeof view.revealActiveFile === "function") {
         view.revealActiveFile();
       }
+      void view.app.workspace.requestSaveLayout();
     });
   });
 
@@ -1704,8 +1725,31 @@ function setFolderPath(
   });
 }
 
-function getFolderSpaceIcon(options: FolderSpaceViewOptions, folderPath: string | null): string {
-  return options.getFolderIcon?.(folderPath) ?? options.getIcon();
+/**
+ * 更新這個 panel 的 icon。
+ *
+ * icon 屬於 panel（leaf view state），不是資料夾路徑：同一資料夾的兩個 space
+ * 可以各自不同，panel 換資料夾或資料夾改名都不影響。
+ */
+function setViewIcon(view: PatchedExplorerView, icon: string): void {
+  const nextIcon = normalizeViewScopedIcon(icon);
+  if (nextIcon === view.icon) {
+    return;
+  }
+
+  view.icon = nextIcon;
+  refreshLeafHeader(view);
+  // 路徑列左側狀態 icon（未 bound 時顯示 panel icon）
+  updateFollowParentButton(view);
+  void view.app.workspace.requestSaveLayout();
+}
+
+/** 更新這個 panel 的排序設定（同樣存進 leaf view state）。 */
+function setViewSortOrder(view: PatchedExplorerView, order: FolderSpaceSortOrder): void {
+  view.folderSpaceSortOrder = normalizeSortOrder(order) ?? DEFAULT_FOLDER_SPACE_SORT_ORDER;
+  updateSortButtonIcon(view);
+  view.requestSort();
+  void view.app.workspace.requestSaveLayout();
 }
 
 function updateViewSettingsButton(view: PatchedExplorerView): void {
@@ -1725,7 +1769,7 @@ function updateViewSettingsButton(view: PatchedExplorerView): void {
  * 看不出來）。此處在 load 之前直接從 leaf 的 view state 讀取初始 folderPath 與
  * 檢視模式，讓第一次渲染即為正確範圍，消除抖動。
  */
-function applyInitialViewState(view: PatchedExplorerView): void {
+function applyInitialViewState(view: PatchedExplorerView, options: FolderSpaceViewOptions): void {
   const viewState = (view.leaf as WorkspaceLeaf | undefined)?.getViewState?.();
   if (!viewState) {
     return;
@@ -1749,6 +1793,12 @@ function applyInitialViewState(view: PatchedExplorerView): void {
   if (view.contentMode === "files") {
     view.viewMode = "flat";
   }
+  const scopedDefaults = options.getViewScopedDefaults?.(nextState.folderPath) ?? null;
+  view.icon = normalizeViewScopedIcon(nextState.folderSpaceIcon, scopedDefaults?.icon);
+  view.folderSpaceSortOrder = normalizeViewScopedSortOrder(
+    nextState.folderSpaceSortOrder,
+    scopedDefaults?.sortOrder
+  );
   view.filterQuery = rawSearchQuery;
   (view as unknown as { _initialShowSearch?: boolean })._initialShowSearch = rawShowSearch;
 }
@@ -4011,10 +4061,7 @@ function getFlatItems(view: PatchedExplorerView, rootFolder: TFolder): InternalT
 
 /** 目前 view 的有效排序（per-folder 記錄優先，否則預設 name/asc）。 */
 function getEffectiveSortOrder(view: PatchedExplorerView): FolderSpaceSortOrder {
-  if (view.folderPath === null) {
-    return DEFAULT_FOLDER_SPACE_SORT_ORDER;
-  }
-  return view.getFolderSortOrder(view.folderPath) ?? DEFAULT_FOLDER_SPACE_SORT_ORDER;
+  return normalizeSortOrder(view.folderSpaceSortOrder) ?? DEFAULT_FOLDER_SPACE_SORT_ORDER;
 }
 
 /** 檔案路徑相對 folder space root（過濾比對用，與顯示一致）。 */
@@ -4059,10 +4106,6 @@ function displayItemMatchesQuery(view: PatchedExplorerView, item: InternalTreeIt
     return pathContainsQuery(query, relativePath) || hasMatchingPathDescendant(item.file, query);
   }
   return pathContainsQuery(query, relativePath);
-}
-
-function normalizeOptionalSortOrder(value: unknown): FolderSpaceSortOrder | null {
-  return normalizeSortOrder(value);
 }
 
 /**
@@ -4302,7 +4345,7 @@ class FolderSpaceUnsupportedView extends ItemView {
 
   constructor(leaf: WorkspaceLeaf, private readonly options: FolderSpaceViewOptions) {
     super(leaf);
-    this.icon = options.getFolderIcon?.(this.folderPath) ?? options.getIcon();
+    this.icon = normalizeViewScopedIcon(undefined, options.getViewScopedDefaults?.(this.folderPath)?.icon);
     this.trySelfHealing();
   }
 
@@ -4343,7 +4386,7 @@ class FolderSpaceUnsupportedView extends ItemView {
   }
 
   override getIcon(): string {
-    return this.options.getFolderIcon?.(this.folderPath) ?? this.options.getIcon();
+    return this.icon || DEFAULT_VIEW_ICON;
   }
 
   override getDisplayText(): string {
@@ -4351,11 +4394,15 @@ class FolderSpaceUnsupportedView extends ItemView {
   }
 
   override getState(): Record<string, unknown> {
-    return { folderPath: this.folderPath };
+    return { folderPath: this.folderPath, folderSpaceIcon: this.icon };
   }
 
   override async setState(state: unknown, _result: ViewStateResult): Promise<void> {
     this.folderPath = normalizeState(state).folderPath;
+    this.icon = normalizeViewScopedIcon(
+      (state as Record<string, unknown> | null)?.folderSpaceIcon,
+      this.options.getViewScopedDefaults?.(this.folderPath)?.icon
+    );
     this.render();
   }
 

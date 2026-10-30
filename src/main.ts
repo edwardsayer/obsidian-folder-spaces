@@ -62,16 +62,14 @@ import {
   getDefaultFollowParent,
   getDefaultOpenLocation,
   normalizeSettings,
-  resolveViewIcon,
-  migrateFolderPathInSettings,
-  pruneFolderPathFromSettings,
+  readLegacyFolderScopedSettings,
+  type LegacyFolderScopedSettings,
   type FolderSpaceViewMode,
   type FolderSpaceDepthMode,
   type FolderSpaceContentMode,
   type FolderSpacesSettings
 } from "./settings.js";
 import { getPreset, presetToState, resolveInitialPresetId } from "./presets.js";
-import { normalizeSortOrder, type FolderSpaceSortOrder } from "./folder-space-sort-filter.js";
 import { FolderSpacesSettingTab } from "./ui/settings-tab.js";
 import { WindowActiveFileTracker } from "./shared/windowActiveFileTracker.js";
 
@@ -98,6 +96,14 @@ export default class FolderSpacesPlugin extends Plugin {
   private readonly windowActiveFileTracker = new WindowActiveFileTracker(this.app);
   private activeContextSourceLeaf: WorkspaceLeaf | null = null;
   private popoutLayout!: PopoutLayoutEngineWithWindow;
+  /**
+   * 舊版（per folder path）設定的一次性遷移來源。panel（view state）沒有自己
+   * 的 icon／排序時才使用；不再寫回 data.json。
+   */
+  private legacyFolderScopedSettings: LegacyFolderScopedSettings = {
+    folderIcons: {},
+    folderSortOrders: {}
+  };
   private nativeTerminalManager?: NativeTerminalManager;
 
   override async onload(): Promise<void> {
@@ -134,19 +140,11 @@ export default class FolderSpacesPlugin extends Plugin {
       FOLDER_SPACES_VIEW_TYPE,
       (leaf) =>
         createFolderSpaceViewWithOptions(this.app, leaf, {
-          getIcon: () => this.getFolderSpaceIcon(),
-          getFolderIcon: (folderPath) => this.getFolderSpaceIcon(folderPath),
+          getViewScopedDefaults: (folderPath) => this.getLegacyViewScopedDefaults(folderPath),
           getDefaultViewMode: () => this.settings.defaultViewMode,
           getDefaultDepthMode: () => this.settings.defaultDepthMode,
           getDefaultContentMode: () => this.settings.defaultContentMode,
           getDefaultChildPreset: () => this.settings.defaultChildPreset,
-          setFolderIcon: (folderPath, icon) => {
-            void this.setFolderIcon(folderPath, icon);
-          },
-          getFolderSortOrder: (folderPath) => this.settings.folderSortOrders[folderPath] ?? null,
-          setFolderSortOrder: (folderPath, order) => {
-            void this.setFolderSortOrder(folderPath, order);
-          },
           bindingManager: this.panelBindingManager,
           popoutLayoutEngine: this.popoutLayout,
           openSearchInWindow: (win, query) => this.openSearchInWindow(win, query),
@@ -196,26 +194,13 @@ export default class FolderSpacesPlugin extends Plugin {
       })
     );
     this.registerEvent(
+      // per-panel 設定（icon／排序等）存在 leaf view state，資料夾改名或刪除
+      // 都不需要搬移設定；這裡只更新 panel 目前顯示的 folderPath。
       this.app.vault.on("rename", (file, oldPath) => {
         if (!(file instanceof TFolder)) {
           return;
         }
-        const changed = migrateFolderPathInSettings(this.settings, oldPath, file.path);
-        if (changed) {
-          void this.saveData(this.settings);
-        }
         this.updateOpenLeavesFolderPathOnRename(oldPath, file.path);
-      })
-    );
-    this.registerEvent(
-      this.app.vault.on("delete", (file) => {
-        if (!(file instanceof TFolder)) {
-          return;
-        }
-        const changed = pruneFolderPathFromSettings(this.settings, file.path);
-        if (changed) {
-          void this.saveData(this.settings);
-        }
       })
     );
     new FileExplorerCompatibilityBridge(this).start();
@@ -252,14 +237,15 @@ export default class FolderSpacesPlugin extends Plugin {
     releasePopoutLayoutEngine("folder-spaces");
   }
 
-  getFolderSpaceIcon(folderPath?: string | null): string {
-    if (typeof folderPath === "string") {
-      const folderIcon = this.settings.folderIcons[folderPath];
-      if (folderIcon) {
-        return resolveViewIcon(folderIcon);
-      }
+  /** 舊版 per-folder 設定的一次性遷移來源（panel 尚無自己的值時使用）。 */
+  private getLegacyViewScopedDefaults(folderPath: string | null) {
+    if (typeof folderPath !== "string") {
+      return null;
     }
-    return DEFAULT_VIEW_ICON;
+    return {
+      icon: this.legacyFolderScopedSettings.folderIcons[folderPath] ?? null,
+      sortOrder: this.legacyFolderScopedSettings.folderSortOrders[folderPath] ?? null
+    };
   }
 
   async updateSettings(settings: FolderSpacesSettings): Promise<void> {
@@ -269,44 +255,10 @@ export default class FolderSpacesPlugin extends Plugin {
     this.refreshRibbonIcon();
   }
 
-  private async setFolderSortOrder(folderPath: string, order: FolderSpaceSortOrder): Promise<void> {
-    const normalizedPath = typeof folderPath === "string" ? folderPath.trim() : null;
-    const normalizedOrder = normalizeSortOrder(order);
-    if (normalizedPath === null || normalizedOrder === null) {
-      return;
-    }
-
-    await this.updateSettings({
-      ...this.settings,
-      folderSortOrders: {
-        ...this.settings.folderSortOrders,
-        [normalizedPath]: normalizedOrder
-      }
-    });
-  }
-
-  private async setFolderIcon(folderPath: string, icon: string): Promise<void> {
-    const normalizedPath = typeof folderPath === "string" ? folderPath.trim() : null;
-    if (normalizedPath === null) {
-      return;
-    }
-
-    const folderIcons = { ...this.settings.folderIcons };
-    const resolvedIcon = resolveViewIcon(icon);
-    if (!resolvedIcon || resolvedIcon === this.getFolderSpaceIcon()) {
-      delete folderIcons[normalizedPath];
-    } else {
-      folderIcons[normalizedPath] = resolvedIcon;
-    }
-
-    await this.updateSettings({
-      ...this.settings,
-      folderIcons
-    });
-  }
-
   private async loadSettings(): Promise<void> {
-    this.settings = normalizeSettings(await this.loadData());
+    const data: unknown = await this.loadData();
+    this.settings = normalizeSettings(data);
+    this.legacyFolderScopedSettings = readLegacyFolderScopedSettings(data);
   }
 
   private registerFolderMenu(): void {
@@ -319,7 +271,7 @@ export default class FolderSpacesPlugin extends Plugin {
         const parentPanelId = this.getContextParentPanelId(leaf ?? this.activeContextSourceLeaf);
 
         menu.addItem((item) => {
-          item.setSection("view").setTitle(t("menuFolderSpaces")).setIcon(this.getFolderSpaceIcon());
+          item.setSection("view").setTitle(t("menuFolderSpaces")).setIcon(DEFAULT_VIEW_ICON);
           const submenu = (item as unknown as MenuItemWithSubmenu).setSubmenu();
 
           const context = this.getActiveWindowContext();
@@ -393,7 +345,7 @@ export default class FolderSpacesPlugin extends Plugin {
     if (this.ribbonIconEl) {
       return;
     }
-    const ribbonIcon = this.addRibbonIcon(this.getFolderSpaceIcon(), t("commandOpenFolderSpace"), () => {
+    const ribbonIcon = this.addRibbonIcon(DEFAULT_VIEW_ICON, t("commandOpenFolderSpace"), () => {
       this.promptOpenFolderSpace();
     });
     ribbonIcon.addClass("folder-spaces-ribbon");
@@ -406,7 +358,7 @@ export default class FolderSpacesPlugin extends Plugin {
         this.registerOpenFolderSpaceRibbon();
       } else {
         this.ribbonIconEl.empty();
-        setIcon(this.ribbonIconEl, this.getFolderSpaceIcon());
+        setIcon(this.ribbonIconEl, DEFAULT_VIEW_ICON);
       }
       return;
     }
@@ -731,11 +683,11 @@ export default class FolderSpacesPlugin extends Plugin {
   private refreshFolderSpaces(): void {
     for (const leaf of getLeavesOfTypeAcrossWindows(this.app.workspace, FOLDER_SPACES_VIEW_TYPE)) {
       const view = leaf.view as View & { folderPath?: string | null };
-      const folderPath = view.folderPath ?? null;
-      const icon = this.getFolderSpaceIcon(folderPath);
-      view.icon = icon;
+      // icon 屬於 panel 自己（view state），這裡只負責把它同步到 leaf header。
+      const viewIcon = (view as unknown as { getIcon?: () => string }).getIcon?.();
+      view.icon = viewIcon || DEFAULT_VIEW_ICON;
       refreshLeafHeader(leaf);
-      // 路徑列左側狀態圖示（未 bound 時即 per-folder icon）也必須同步刷新。
+      // 路徑列左側狀態圖示（未 bound 時即 panel icon）也必須同步刷新。
       if (isFolderSpaceView(view as View)) {
         refreshFolderSpaceStatusIcon(view);
       }
