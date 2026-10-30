@@ -682,13 +682,12 @@ export default class FolderSpacesPlugin extends Plugin {
 
   private refreshFolderSpaces(): void {
     for (const leaf of getLeavesOfTypeAcrossWindows(this.app.workspace, FOLDER_SPACES_VIEW_TYPE)) {
-      const view = leaf.view as View & { folderPath?: string | null };
+      const view = leaf.view;
       // icon 屬於 panel 自己（view state），這裡只負責把它同步到 leaf header。
-      const viewIcon = (view as unknown as { getIcon?: () => string }).getIcon?.();
-      view.icon = viewIcon || DEFAULT_VIEW_ICON;
+      view.icon = view.getIcon() || DEFAULT_VIEW_ICON;
       refreshLeafHeader(leaf);
       // 路徑列左側狀態圖示（未 bound 時即 panel icon）也必須同步刷新。
-      if (isFolderSpaceView(view as View)) {
+      if (isFolderSpaceView(view)) {
         refreshFolderSpaceStatusIcon(view);
       }
     }
