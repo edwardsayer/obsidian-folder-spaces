@@ -51,10 +51,10 @@ Chain parent and child Folder Spaces together in your workspace. Navigating fold
 
 ![Cascading Multi-Panel Chaining](assets/screenshots/showcase-cascading-panels.png)
 
-| 🎯 Single-Context Sidebar Focus | ⚙️ 8 View Presets & Flat Mode | 🔍 Header Controls & Live Filter |
+| 🎯 Panel Actions Menu | ⚙️ 8 View Presets & Flat Mode | 🔍 Header Controls & Live Filter |
 | :---: | :---: | :---: |
-| ![Sidebar Focus](assets/screenshots/showcase-sidebar-focus.png) | ![View Presets & Flat Mode](assets/screenshots/showcase-presets-and-flat-view.png) | ![Header Actions & Live Filter](assets/screenshots/showcase-header-actions.png) |
-| *Dedicated, scoped sidebar explorer with custom icon and zero vault clutter* | *8 tailored presets (Explorer, Navigate, Columns, Context, Contents, Files, Items, List) + Tree/Flat modes* | *Compact single-row header with in-place live filter and instant query matching* |
+| ![Panel actions menu, opened by right-clicking the leading icon](assets/screenshots/showcase-sidebar-focus.png) | ![View Presets & Flat Mode](assets/screenshots/showcase-presets-and-flat-view.png) | ![Header Actions & Live Filter](assets/screenshots/showcase-header-actions.png) |
+| *Right-click the leading icon to toggle the link, pick a panel icon, or open settings* | *8 tailored presets (Explorer, Navigate, Columns, Context, Contents, Files, Items, List) + Tree/Flat modes* | *Compact single-row header with in-place live filter and instant query matching* |
 
 ---
 
@@ -87,10 +87,11 @@ The Folder Space header is a compact single row that keeps the native file actio
 - Shows the current root folder path, truncated with a hover tooltip for the full path.
 - **Click the root title** to open a searchable picker over all vault folders — navigate up to the parent or down into any subfolder.
 - **Right-click the root title** for the full native folder context menu (`file-menu`) — including new note / new folder and other file actions.
+- **Right-click the icon at the far left of the title bar** to open the panel actions menu (tooltip `Right-click to open actions menu`): **Enable/disable link**, **Remove parent link (cannot be undone)**, **Set folder space icon**, and **Open Folder Spaces settings**. The two link entries are disabled while the panel has no parent link.
 - **Select subfolder / Up to parent** actions to move the root scope.
-- **Header actions**: dedicated controls for path filtering and sorting; the view-settings menu changes Tree/Flat, depth/content, and presets. Additional actions reveal/auto-reveal the current file, collapse/expand all, set a custom folder icon, or open Folder Spaces settings.
+- **Header actions**: dedicated controls for path filtering and sorting; the view-settings menu changes Tree/Flat, depth/content, and presets. The sort menu also offers reveal/auto-reveal current file and collapse/expand all.
 - **Inline root-folder rename** with Enter to commit or Escape to cancel.
-- **Per-folder settings** (view, depth, content, sort, icon) are remembered and migrated when a folder is renamed or moved.
+- **Per-panel settings** (icon, sort, style/tree-flat, depth, show, filter) belong to each panel: two panels on the same folder can differ, and switching or renaming the folder keeps them. Defaults for new panels live in Settings.
 
 ### Protected panels & smart file routing
 - Folder Space tabs are protected from generic note reuse, so sidebar and popout panels are **never replaced** by an opened note. Notes opened from a Folder Space are routed to a usable content/editor pane; pinned note targets remain protected and receive a new tab when appropriate.
